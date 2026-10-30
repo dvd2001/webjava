@@ -20,6 +20,11 @@
   <properties>
     <java.version>17</java.version>
     <archunit.version>1.4.1</archunit.version>
+    <embedded-postgres.version>2.2.2</embedded-postgres.version>
+    <!-- Helyi PostgreSQL a Flyway migrációhoz; a jelszót -Ddb.password=... adja át, ne kerüljön a repóba -->
+    <db.url>jdbc:postgresql://localhost:5432/kerekpar</db.url>
+    <db.user>kerekpar</db.user>
+    <db.password></db.password>
   </properties>
 
   <dependencies>
@@ -27,10 +32,34 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.zonky.test</groupId>
+      <artifactId>embedded-postgres</artifactId>
+      <version>${embedded-postgres.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -46,6 +75,32 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+      <!-- Futtatás: .\mvnw.cmd flyway:migrate -Ddb.password=... (a Spring Boot által kezelt Flyway verzióval) -->
+      <plugin>
+        <groupId>org.flywaydb</groupId>
+        <artifactId>flyway-maven-plugin</artifactId>
+        <version>${flyway.version}</version>
+        <configuration>
+          <url>${db.url}</url>
+          <user>${db.user}</user>
+          <password>${db.password}</password>
+          <locations>
+            <location>filesystem:src/main/resources/db/migration</location>
+          </locations>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
+          </dependency>
+        </dependencies>
       </plugin>
     </plugins>
   </build>

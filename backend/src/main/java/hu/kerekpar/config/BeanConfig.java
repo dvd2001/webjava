@@ -2,11 +2,6 @@ package hu.kerekpar.config;
 
 import hu.kerekpar.adapter.in.web.RequestLoggingFilter;
 import hu.kerekpar.adapter.out.memory.DemoDataSeeder;
-import hu.kerekpar.adapter.out.memory.InMemoryBikeRepository;
-import hu.kerekpar.adapter.out.memory.InMemoryRentalRepository;
-import hu.kerekpar.adapter.out.memory.InMemoryTariffRepository;
-import hu.kerekpar.adapter.out.memory.InMemoryUserRepository;
-import hu.kerekpar.adapter.out.memory.LockingUnitOfWork;
 import hu.kerekpar.adapter.out.memory.SystemClockAdapter;
 import hu.kerekpar.application.port.in.AddBikeUseCase;
 import hu.kerekpar.application.port.in.ChangeBikeStatusUseCase;
@@ -40,33 +35,8 @@ import org.springframework.context.annotation.Configuration;
 public class BeanConfig {
 
     @Bean
-    BikeRepository bikeRepository() {
-        return new InMemoryBikeRepository();
-    }
-
-    @Bean
-    RentalRepository rentalRepository() {
-        return new InMemoryRentalRepository();
-    }
-
-    @Bean
-    UserRepository userRepository() {
-        return new InMemoryUserRepository();
-    }
-
-    @Bean
-    TariffRepository tariffRepository() {
-        return new InMemoryTariffRepository();
-    }
-
-    @Bean
     ClockPort clockPort() {
         return new SystemClockAdapter();
-    }
-
-    @Bean
-    UnitOfWork unitOfWork() {
-        return new LockingUnitOfWork();
     }
 
     @Bean
