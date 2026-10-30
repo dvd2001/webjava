@@ -1,18 +1,23 @@
 import { useState, type FormEvent } from 'react';
 import type { BikeType } from '../types';
-import { TYPE_LABELS } from '../labels';
+import { BIKE_TYPES, TYPE_LABELS } from '../labels';
 
 interface Props {
-  onAdd: (name: string, type: BikeType) => boolean;
+  busy: boolean;
+  onAdd: (name: string, type: BikeType) => Promise<boolean>;
 }
 
-export function AddBikeForm({ onAdd }: Props) {
+function isBikeType(value: string): value is BikeType {
+  return BIKE_TYPES.some((t) => t === value);
+}
+
+export function AddBikeForm({ busy, onAdd }: Props) {
   const [name, setName] = useState('');
   const [type, setType] = useState<BikeType>('city');
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (onAdd(name, type)) setName('');
+    if (await onAdd(name, type)) setName('');
   };
 
   return (
@@ -25,15 +30,22 @@ export function AddBikeForm({ onAdd }: Props) {
         </label>
         <label>
           Típus
-          <select value={type} onChange={(e) => setType(e.target.value as BikeType)}>
-            {(Object.keys(TYPE_LABELS) as BikeType[]).map((t) => (
+          <select
+            value={type}
+            onChange={(e) => {
+              if (isBikeType(e.target.value)) setType(e.target.value);
+            }}
+          >
+            {BIKE_TYPES.map((t) => (
               <option key={t} value={t}>
                 {TYPE_LABELS[t]}
               </option>
             ))}
           </select>
         </label>
-        <button type="submit">Hozzáadás</button>
+        <button type="submit" disabled={busy}>
+          Hozzáadás
+        </button>
       </form>
     </section>
   );

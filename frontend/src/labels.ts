@@ -12,6 +12,8 @@ export const TYPE_LABELS: Record<BikeType, string> = {
   electric: 'Elektromos',
 };
 
+export const BIKE_TYPES: BikeType[] = ['city', 'mountain', 'electric'];
+
 export const ROLE_LABELS: Record<UserRole, string> = {
   manager: 'Állomásvezető',
   renter: 'Bérlő',

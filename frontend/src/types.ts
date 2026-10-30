@@ -1,40 +1,14 @@
-export type BikeStatus = 'available' | 'in_use' | 'maintenance';
+import type { components } from './api/schema';
 
-export type BikeType = 'city' | 'mountain' | 'electric';
+type Schemas = components['schemas'];
 
-export interface Bike {
-  id: string;
-  name: string;
-  type: BikeType;
-  status: BikeStatus;
-}
+export type Bike = Schemas['Bike'];
+export type BikeStatus = Schemas['BikeStatus'];
+export type BikeType = Schemas['BikeType'];
+export type User = Schemas['User'];
+export type UserRole = Schemas['UserRole'];
+export type Rental = Schemas['Rental'];
+export type Tariff = Schemas['Tariff'];
 
-export type UserRole = 'manager' | 'renter';
-
-export interface User {
-  id: string;
-  name: string;
-  role: UserRole;
-}
-
-export interface Rental {
-  id: string;
-  bikeId: string;
-  userId: string;
-  startedAt: number;
-  endedAt?: number;
-  fee?: number;
-}
-
-export interface Tariff {
-  /** Egyszeri kezdődíj (Ft) */
-  baseFee: number;
-  /** Percdíj (Ft), megkezdett percenként */
-  perMinute: number;
-}
-
-export interface AppState {
-  bikes: Bike[];
-  rentals: Rental[];
-  tariffs: Record<BikeType, Tariff>;
-}
+/** A tarifák biciklitípus szerint kulcsolva (a szerződés additionalProperties típusa). */
+export type Tariffs = Record<string, Tariff>;

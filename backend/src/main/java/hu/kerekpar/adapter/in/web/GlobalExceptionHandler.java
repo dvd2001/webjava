@@ -1,6 +1,6 @@
 package hu.kerekpar.adapter.in.web;
 
-import hu.kerekpar.adapter.in.web.ApiDtos.ApiError;
+import hu.kerekpar.adapter.in.web.api.model.ApiErrorDto;
 import hu.kerekpar.domain.exception.ConflictException;
 import hu.kerekpar.domain.exception.DomainException;
 import hu.kerekpar.domain.exception.ForbiddenException;
@@ -20,24 +20,24 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-/** Minden hibát egységes {@link ApiError} törzsre képez le. */
+/** Minden hibát a szerződés {@link ApiErrorDto} törzsére képez le. */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(DomainException.class)
-    public ResponseEntity<ApiError> handleDomain(DomainException e) {
+    public ResponseEntity<ApiErrorDto> handleDomain(DomainException e) {
         HttpStatus status = statusOf(e);
         log.warn("Üzleti hiba: {} {} - {}", status.value(), e.code(), e.getMessage());
-        return ResponseEntity.status(status).body(new ApiError(e.code(), e.getMessage()));
+        return ResponseEntity.status(status).body(new ApiErrorDto(e.code(), e.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleUnexpected(Exception e) {
+    public ResponseEntity<ApiErrorDto> handleUnexpected(Exception e) {
         log.error("Váratlan hiba", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiError("INTERNAL_ERROR", "Váratlan hiba történt."));
+                .body(new ApiErrorDto("INTERNAL_ERROR", "Váratlan hiba történt."));
     }
 
     @Override
@@ -45,7 +45,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         log.warn("Érvénytelen kérés törzs: {}", ex.getMessage());
         return ResponseEntity.status(status)
-                .body(new ApiError("INVALID_REQUEST", "Érvénytelen kérés: hibás vagy hiányzó adat."));
+                .body(new ApiErrorDto("INVALID_REQUEST", "Érvénytelen kérés: hibás vagy hiányzó adat."));
     }
 
     @Override
@@ -55,7 +55,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 ? "Hiányzó fejléc: " + missing.getHeaderName()
                 : "Érvénytelen kérés.";
         log.warn("Kérés kötési hiba: {}", message);
-        return ResponseEntity.status(status).body(new ApiError("INVALID_REQUEST", message));
+        return ResponseEntity.status(status).body(new ApiErrorDto("INVALID_REQUEST", message));
     }
 
     @Override
@@ -63,7 +63,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpStatusCode statusCode, WebRequest request) {
         log.warn("Kérés elutasítva: {} {}", statusCode.value(), ex.getClass().getSimpleName());
         return ResponseEntity.status(statusCode).headers(headers)
-                .body(new ApiError("REQUEST_ERROR", "A kérés nem teljesíthető (" + statusCode.value() + ")."));
+                .body(new ApiErrorDto("REQUEST_ERROR", "A kérés nem teljesíthető (" + statusCode.value() + ")."));
     }
 
     private static HttpStatus statusOf(DomainException e) {

@@ -1,0 +1,398 @@
+openapi: 3.0.3
+info:
+  title: Kerékpár állomás kölcsönzés API
+  version: 0.1.0
+  description: |
+    Egy állomáshoz kötött kerékpár-kölcsönzés REST API-ja.
+
+    A hitelesítés nincs megvalósítva: a kérést indító felhasználót az `X-User-Id` fejléc azonosítja
+    (felhasználóváltás), a jogosultságot a szerepkör alapján ellenőrzi a szerver.
+    Az időpontok epoch ezredmásodpercek (UTC), a pénzösszegek egész forintban értendők.
+servers:
+  - url: http://localhost:8080
+    description: Helyi fejlesztői szerver
+tags:
+  - name: Reference
+    description: Felhasználók és tarifák
+  - name: Bikes
+    description: Biciklik
+  - name: Rentals
+    description: Bérlések
+
+paths:
+  /api/users:
+    get:
+      tags: [Reference]
+      operationId: listUsers
+      summary: Az elérhető felhasználók listája
+      responses:
+        '200':
+          description: Felhasználók
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  /api/tariffs:
+    get:
+      tags: [Reference]
+      operationId: listTariffs
+      summary: Díjszabás biciklitípusonként
+      responses:
+        '200':
+          description: A tarifák a biciklitípus (city, mountain, electric) szerint kulcsolva
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/Tariff'
+
+  /api/bikes:
+    get:
+      tags: [Bikes]
+      operationId: listBikes
+      summary: Az állomás biciklijei státusszal
+      responses:
+        '200':
+          description: Biciklik
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Bike'
+    post:
+      tags: [Bikes]
+      operationId: createBike
+      summary: Új bicikli felvétele (csak állomásvezető)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBikeRequest'
+      responses:
+        '201':
+          description: A felvett bicikli (státusza `available`)
+          headers:
+            Location:
+              description: Az új bicikli URL-je
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bike'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/bikes/{id}/status:
+    patch:
+      tags: [Bikes]
+      operationId: changeBikeStatus
+      summary: Bicikli státuszának módosítása (csak állomásvezető)
+      description: |
+        Csak az `available` és a `maintenance` állítható be közvetlenül.
+        Használatban lévő bicikli státusza csak visszavétellel változik, az `in_use` csak bérléssel áll elő.
+      parameters:
+        - $ref: '#/components/parameters/BikeId'
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeBikeStatusRequest'
+      responses:
+        '200':
+          description: A módosított bicikli
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bike'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/rentals:
+    get:
+      tags: [Rentals]
+      operationId: listRentals
+      summary: Bérlések (állomásvezetőnek mind, bérlőnek csak a sajátjai)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: status
+          in: query
+          required: false
+          description: Szűrés a bérlés állapota szerint
+          schema:
+            type: string
+            enum: [all, active, finished]
+            default: all
+      responses:
+        '200':
+          description: Bérlések kezdési idő szerint növekvő sorrendben
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Rental'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Rentals]
+      operationId: createRental
+      summary: Bicikli bérlése (csak bérlő)
+      description: Csak `available` státuszú bicikli bérelhető, a bérelt bicikli nem adható ki újra.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRentalRequest'
+      responses:
+        '201':
+          description: A megkezdett bérlés
+          headers:
+            Location:
+              description: Az új bérlés URL-je
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rental'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/rentals/{id}/return:
+    post:
+      tags: [Rentals]
+      operationId: returnRental
+      summary: Bicikli visszavétele és a bérleti díj kiszámítása
+      description: |
+        A díj a tarifából (kezdődíj + megkezdett percek × percdíj, legalább 1 perc) és a mért használati időből adódik.
+        A bérlő csak a saját bérlését zárhatja le, az állomásvezető bármelyiket.
+      parameters:
+        - $ref: '#/components/parameters/RentalId'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: A lezárt bérlés a végső díjjal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rental'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  parameters:
+    UserId:
+      name: X-User-Id
+      in: header
+      required: true
+      description: A kérést indító felhasználó azonosítója (nem hitelesítés)
+      schema:
+        type: string
+        example: u1
+    BikeId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: b3
+    RentalId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: r3
+
+  responses:
+    BadRequest:
+      description: Érvénytelen kérés (hibás adat, hiányzó fejléc, ismeretlen szűrő)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Forbidden:
+      description: A szerepkör nem jogosult a műveletre
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    NotFound:
+      description: Ismeretlen felhasználó, bicikli vagy bérlés
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Conflict:
+      description: Üzleti szabály vagy egyidejű módosítás miatt nem végrehajtható
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+
+  schemas:
+    BikeType:
+      type: string
+      enum: [city, mountain, electric]
+    BikeStatus:
+      type: string
+      enum: [available, in_use, maintenance]
+    UserRole:
+      type: string
+      enum: [manager, renter]
+
+    User:
+      type: object
+      required: [id, name, role]
+      properties:
+        id:
+          type: string
+          example: u2
+        name:
+          type: string
+          example: Nagy Péter
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    Tariff:
+      type: object
+      required: [baseFee, perMinute]
+      properties:
+        baseFee:
+          type: integer
+          format: int64
+          description: Egyszeri kezdődíj (Ft)
+          example: 300
+        perMinute:
+          type: integer
+          format: int64
+          description: Percdíj (Ft) megkezdett percenként
+          example: 15
+
+    Bike:
+      type: object
+      required: [id, name, type, status]
+      properties:
+        id:
+          type: string
+          example: b3
+        name:
+          type: string
+          example: City-03
+        type:
+          $ref: '#/components/schemas/BikeType'
+        status:
+          $ref: '#/components/schemas/BikeStatus'
+
+    CreateBikeRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+          description: Egyedi név (kis- és nagybetűtől függetlenül), 2-50 karakter szóközök nélkül a két végén
+          example: City-03
+        type:
+          $ref: '#/components/schemas/BikeType'
+
+    ChangeBikeStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/BikeStatus'
+
+    CreateRentalRequest:
+      type: object
+      required: [bikeId]
+      properties:
+        bikeId:
+          type: string
+          example: b3
+
+    Rental:
+      type: object
+      required: [id, bikeId, userId, startedAt, elapsedSeconds, currentFee]
+      properties:
+        id:
+          type: string
+          example: r3
+        bikeId:
+          type: string
+          example: b3
+        userId:
+          type: string
+          example: u2
+        startedAt:
+          type: integer
+          format: int64
+          description: A bérlés kezdete (epoch ezredmásodperc)
+        endedAt:
+          type: integer
+          format: int64
+          description: A bérlés vége; csak lezárt bérlésnél szerepel
+        fee:
+          type: integer
+          format: int64
+          description: A végső díj (Ft); csak lezárt bérlésnél szerepel
+        elapsedSeconds:
+          type: integer
+          format: int64
+          description: Az eltelt (lezárt bérlésnél a teljes) használati idő a válasz pillanatában
+        currentFee:
+          type: integer
+          format: int64
+          description: Az eddigi (lezárt bérlésnél a végső) díj a válasz pillanatában
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Géppel olvasható hibakód
+          example: BIKE_NOT_AVAILABLE
+        message:
+          type: string
+          description: Emberi olvasatra szánt, magyar nyelvű üzenet
+          example: Ez a bicikli jelenleg nem bérelhető.

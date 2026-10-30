@@ -1,18 +1,17 @@
 package hu.kerekpar.adapter.in.web;
 
-import hu.kerekpar.adapter.in.web.ApiDtos.TariffResponse;
-import hu.kerekpar.adapter.in.web.ApiDtos.UserResponse;
+import hu.kerekpar.adapter.in.web.api.ReferenceApi;
+import hu.kerekpar.adapter.in.web.api.model.TariffDto;
+import hu.kerekpar.adapter.in.web.api.model.UserDto;
 import hu.kerekpar.application.port.in.ListTariffsUseCase;
 import hu.kerekpar.application.port.in.ListUsersUseCase;
 import java.util.List;
 import java.util.Map;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api")
-public class ReferenceDataController {
+public class ReferenceDataController implements ReferenceApi {
 
     private final ListUsersUseCase listUsers;
     private final ListTariffsUseCase listTariffs;
@@ -22,13 +21,13 @@ public class ReferenceDataController {
         this.listTariffs = listTariffs;
     }
 
-    @GetMapping("/users")
-    public List<UserResponse> users() {
-        return listUsers.execute().stream().map(UserResponse::from).toList();
+    @Override
+    public ResponseEntity<List<UserDto>> listUsers() {
+        return ResponseEntity.ok(listUsers.execute().stream().map(ApiMapper::toDto).toList());
     }
 
-    @GetMapping("/tariffs")
-    public Map<String, TariffResponse> tariffs() {
-        return TariffResponse.from(listTariffs.execute());
+    @Override
+    public ResponseEntity<Map<String, TariffDto>> listTariffs() {
+        return ResponseEntity.ok(ApiMapper.toDto(listTariffs.execute()));
     }
 }

@@ -1,26 +1,28 @@
-import type { Bike, Rental, Tariff, User } from '../types';
-import { calculateFee, formatDateTime, formatDuration, formatFt } from '../pricing';
-import { USERS } from '../data';
+import type { Bike, Rental, User } from '../types';
+import { formatDateTime, formatDuration, formatFt } from '../format';
 
 interface Props {
   rentals: Rental[];
   bikes: Bike[];
-  tariffs: Record<Bike['type'], Tariff>;
+  users: User[];
   user: User;
+  busy: boolean;
+  /** Mikor érkezett a bérlések listája; az eltelt idő a szerver által küldött értékből számolódik tovább. */
+  fetchedAt: number;
   now: number;
-  onReturn: (rentalId: string) => void;
+  onReturn: (rental: Rental) => void;
 }
 
-export function RentalsPanel({ rentals, bikes, tariffs, user, now, onReturn }: Props) {
-  const bikeOf = (id: string) => bikes.find((b) => b.id === id);
-  const userName = (id: string) => USERS.find((u) => u.id === id)?.name ?? id;
-  const visible = user.role === 'manager' ? rentals : rentals.filter((r) => r.userId === user.id);
-  const active = visible.filter((r) => r.endedAt === undefined);
-  const finished = visible.filter((r) => r.endedAt !== undefined).slice().reverse();
+export function RentalsPanel({ rentals, bikes, users, user, busy, fetchedAt, now, onReturn }: Props) {
+  const bikeName = (id: string) => bikes.find((b) => b.id === id)?.name ?? id;
+  const userName = (id: string) => users.find((u) => u.id === id)?.name ?? id;
+  const active = rentals.filter((r) => r.endedAt === undefined);
+  const finished = rentals.filter((r) => r.endedAt !== undefined).slice().reverse();
+  const isManager = user.role === 'manager';
 
   return (
     <section className="card">
-      <h2>{user.role === 'manager' ? 'Bérlések' : 'Saját bérléseim'}</h2>
+      <h2>{isManager ? 'Bérlések' : 'Saját bérléseim'}</h2>
 
       <h3>Aktív</h3>
       {active.length === 0 ? (
@@ -30,7 +32,7 @@ export function RentalsPanel({ rentals, bikes, tariffs, user, now, onReturn }: P
           <thead>
             <tr>
               <th>Bicikli</th>
-              {user.role === 'manager' && <th>Bérlő</th>}
+              {isManager && <th>Bérlő</th>}
               <th>Kezdés</th>
               <th>Eltelt idő</th>
               <th>Eddigi díj</th>
@@ -38,21 +40,20 @@ export function RentalsPanel({ rentals, bikes, tariffs, user, now, onReturn }: P
             </tr>
           </thead>
           <tbody>
-            {active.map((r) => {
-              const bike = bikeOf(r.bikeId);
-              return (
-                <tr key={r.id}>
-                  <td>{bike?.name}</td>
-                  {user.role === 'manager' && <td>{userName(r.userId)}</td>}
-                  <td>{formatDateTime(r.startedAt)}</td>
-                  <td>{formatDuration(r.startedAt, now)}</td>
-                  <td>{bike ? formatFt(calculateFee(tariffs[bike.type], r.startedAt, now)) : '-'}</td>
-                  <td>
-                    <button onClick={() => onReturn(r.id)}>Visszavétel</button>
-                  </td>
-                </tr>
-              );
-            })}
+            {active.map((r) => (
+              <tr key={r.id}>
+                <td>{bikeName(r.bikeId)}</td>
+                {isManager && <td>{userName(r.userId)}</td>}
+                <td>{formatDateTime(r.startedAt)}</td>
+                <td>{formatDuration(r.elapsedSeconds + (now - fetchedAt) / 1000)}</td>
+                <td>{formatFt(r.currentFee)}</td>
+                <td>
+                  <button disabled={busy} aria-label={`${bikeName(r.bikeId)} visszavétele`} onClick={() => onReturn(r)}>
+                    Visszavétel
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}
@@ -65,7 +66,7 @@ export function RentalsPanel({ rentals, bikes, tariffs, user, now, onReturn }: P
           <thead>
             <tr>
               <th>Bicikli</th>
-              {user.role === 'manager' && <th>Bérlő</th>}
+              {isManager && <th>Bérlő</th>}
               <th>Kezdés</th>
               <th>Időtartam</th>
               <th>Fizetendő</th>
@@ -74,11 +75,11 @@ export function RentalsPanel({ rentals, bikes, tariffs, user, now, onReturn }: P
           <tbody>
             {finished.map((r) => (
               <tr key={r.id}>
-                <td>{bikeOf(r.bikeId)?.name}</td>
-                {user.role === 'manager' && <td>{userName(r.userId)}</td>}
+                <td>{bikeName(r.bikeId)}</td>
+                {isManager && <td>{userName(r.userId)}</td>}
                 <td>{formatDateTime(r.startedAt)}</td>
-                <td>{formatDuration(r.startedAt, r.endedAt!)}</td>
-                <td>{formatFt(r.fee ?? 0)}</td>
+                <td>{formatDuration(r.elapsedSeconds)}</td>
+                <td>{formatFt(r.fee ?? r.currentFee)}</td>
               </tr>
             ))}
           </tbody>
