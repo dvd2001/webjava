@@ -77,6 +77,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bikes/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Biciklik keresése név, típus és státusz szerint
+         * @description A feltételek ÉS kapcsolatban állnak, mindegyik elhagyható (feltétel nélkül minden bicikli a találat).
+         *     A névre kis- és nagybetűtől független, részlet-egyezés van; a speciális karakterek (pl. `%`, `_`) szó szerint értendők.
+         *     A találatok név szerint rendezettek; legfeljebb `limit` elem jön vissza, a `total` az összes találat száma.
+         *     Állomásvezetőnek és bérlőnek egyaránt elérhető.
+         */
+        get: operations["searchBikes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bikes/{id}/status": {
         parameters: {
             query?: never;
@@ -196,6 +219,14 @@ export interface components {
             name: string;
             type: components["schemas"]["BikeType"];
             status: components["schemas"]["BikeStatus"];
+        };
+        BikeSearchResult: {
+            items: components["schemas"]["Bike"][];
+            /**
+             * Format: int32
+             * @description Az összes találat száma (a `limit` előtt)
+             */
+            total: number;
         };
         CreateBikeRequest: {
             /**
@@ -445,6 +476,37 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    searchBikes: {
+        parameters: {
+            query?: {
+                /** @description A bicikli nevének részlete (legfeljebb 50 karakter, a szóközök a két végén nem számítanak) */
+                q?: string;
+                /** @description Biciklitípus */
+                type?: "city" | "mountain" | "electric";
+                /** @description Státusz */
+                status?: "available" | "in_use" | "maintenance";
+                /** @description A visszaadott elemek legnagyobb száma */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A találatok */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BikeSearchResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     changeBikeStatus: {

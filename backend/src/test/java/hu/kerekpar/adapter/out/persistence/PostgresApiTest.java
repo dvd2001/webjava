@@ -90,6 +90,38 @@ class PostgresApiTest {
     }
 
     @Test
+    void searchOnPostgresUsesTheSameRulesAsInMemoryIncludingAccentedNames() throws Exception {
+        String manager = login(mvc, MANAGER);
+        String renter = login(mvc, RENTER);
+        for (String body : new String[] {
+                "{\"name\":\"City-A\",\"type\":\"city\"}", "{\"name\":\"city-b\",\"type\":\"city\"}",
+                "{\"name\":\"Árpád-05\",\"type\":\"mountain\"}", "{\"name\":\"Teszt_50%\",\"type\":\"electric\"}"}) {
+            mvc.perform(post("/api/bikes").with(bearer(manager)).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isCreated());
+        }
+        String firstId = JsonPath.read(mvc.perform(get("/api/bikes/search").with(bearer(renter)).param("q", "city-a"))
+                .andReturn().getResponse().getContentAsString(), "$.items[0].id");
+        mvc.perform(post("/api/rentals").with(bearer(renter)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"bikeId\":\"" + firstId + "\"}")).andExpect(status().isCreated());
+
+        mvc.perform(get("/api/bikes/search").with(bearer(renter)).param("q", "CITY").param("status", "available"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("city-b"));
+        mvc.perform(get("/api/bikes/search").with(bearer(renter)).param("q", "ÁRPÁD"))
+                .andExpect(jsonPath("$.items[0].name").value("Árpád-05"));
+        mvc.perform(get("/api/bikes/search").with(bearer(renter)).param("q", "árpád"))
+                .andExpect(jsonPath("$.total").value(1));
+        mvc.perform(get("/api/bikes/search").with(bearer(renter)).param("q", "%"))
+                .andExpect(jsonPath("$.items[0].name").value("Teszt_50%"))
+                .andExpect(jsonPath("$.total").value(1));
+        mvc.perform(get("/api/bikes/search").with(bearer(renter)).param("type", "city").param("limit", "1"))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.total").value(2));
+        mvc.perform(get("/api/bikes/search")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void fullRentalFlowOnPostgres() throws Exception {
         String manager = login(mvc, MANAGER);
         String renter = login(mvc, RENTER);

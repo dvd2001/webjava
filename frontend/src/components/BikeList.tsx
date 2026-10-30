@@ -8,16 +8,26 @@ interface Props {
   tariffs: Tariffs;
   user: User;
   busy: boolean;
+  /** Üres lista esetén mutatott szöveg (keresésnél más, mint az üres állomásnál). */
+  emptyMessage?: string;
   onRent: (bike: Bike) => void;
   onChangeStatus: (bike: Bike, status: BikeStatus) => void;
 }
 
-export function BikeList({ bikes, tariffs, user, busy, onRent, onChangeStatus }: Props) {
+export function BikeList({
+  bikes,
+  tariffs,
+  user,
+  busy,
+  emptyMessage = 'Még nincs bicikli az állomáson.',
+  onRent,
+  onChangeStatus,
+}: Props) {
   return (
     <section className="card">
       <h2>Biciklik</h2>
       {bikes.length === 0 ? (
-        <p className="muted">Még nincs bicikli az állomáson.</p>
+        <p className="muted">{emptyMessage}</p>
       ) : (
         <table>
           <thead>

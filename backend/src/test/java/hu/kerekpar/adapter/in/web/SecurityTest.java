@@ -51,6 +51,7 @@ class SecurityTest {
                 new Endpoint(HttpMethod.GET, "/api/users", null, true, false),
                 new Endpoint(HttpMethod.GET, "/api/tariffs", null, true, true),
                 new Endpoint(HttpMethod.GET, "/api/bikes", null, true, true),
+                new Endpoint(HttpMethod.GET, "/api/bikes/search", null, true, true),
                 new Endpoint(HttpMethod.POST, "/api/bikes", uniqueBike, true, false),
                 new Endpoint(HttpMethod.PATCH, "/api/bikes/b1/status", "{\"status\":\"maintenance\"}", true, false),
                 new Endpoint(HttpMethod.GET, "/api/rentals", null, true, true),

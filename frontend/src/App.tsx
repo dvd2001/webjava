@@ -4,8 +4,20 @@ import { DEFAULT_DEMO_USERNAME, DEMO_PASSWORD, DEMO_USERS } from './demoUsers';
 import { BIKE_TYPES, TYPE_LABELS } from './labels';
 import { formatFt } from './format';
 import { useNow } from './useNow';
-import type { Bike, BikeStatus, BikeType, Rental, Tariffs, User } from './types';
+import {
+  EMPTY_SEARCH,
+  isSearchActive,
+  type Bike,
+  type BikeSearchResult,
+  type BikeStatus,
+  type BikeType,
+  type Rental,
+  type SearchCriteria,
+  type Tariffs,
+  type User,
+} from './types';
 import { UserSwitcher } from './components/UserSwitcher';
+import { BikeSearchForm } from './components/BikeSearchForm';
 import { BikeList } from './components/BikeList';
 import { AddBikeForm } from './components/AddBikeForm';
 import { RentalsPanel } from './components/RentalsPanel';
@@ -22,17 +34,28 @@ interface Session {
 }
 
 interface Snapshot {
+  /** Minden bicikli (a bérlések neveihez), a keresés eredményétől függetlenül. */
   bikes: Bike[];
   rentals: Rental[];
+  /** A keresés találatai, ha van aktív szűrő; különben null. */
+  search: BikeSearchResult | null;
   fetchedAt: number;
 }
 
 const POLL_INTERVAL_MS = 5000;
 const RENEW_BEFORE_EXPIRY_MS = 60_000;
+const SEARCH_DEBOUNCE_MS = 300;
 const SESSION_RENEWED = 'A munkamenet lejárt, újra bejelentkeztünk. Próbáld újra a műveletet.';
 
 function messageOf(error: unknown): string {
   return error instanceof ApiError ? error.message : 'Váratlan hiba történt.';
+}
+
+function summaryOf(result: BikeSearchResult | null): string | null {
+  if (!result) return null;
+  return result.total === result.items.length
+    ? `${result.total} találat`
+    : `${result.items.length} találat megjelenítve, összesen ${result.total}`;
 }
 
 export default function App() {
@@ -42,6 +65,8 @@ export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [tariffs, setTariffs] = useState<Tariffs>({});
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [search, setSearch] = useState<SearchCriteria>(EMPTY_SEARCH);
+  const [appliedSearch, setAppliedSearch] = useState<SearchCriteria>(EMPTY_SEARCH);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,6 +79,8 @@ export default function App() {
   const dataEpoch = useRef(0);
   // Csak felhasználóváltáskor nő (a tokenmegújítás nem); a régi felhasználó műveletének eredménye nem szivároghat át
   const userEpoch = useRef(0);
+  // Csak a legutóbb indított frissítés eredménye számít (a keresés gyors módosításakor a régebbi válasz nem írhat felül)
+  const refreshTicket = useRef(0);
 
   // A demo felhasználó csendes bejelentkezése; a régebbi, később érkező válasz nem írhat felül újabbat
   const signIn = useCallback(async (username: string) => {
@@ -81,7 +108,7 @@ export default function App() {
     setActiveUsername(username);
   };
 
-  // Felhasználóváltáskor az előző felhasználó adatai és tokenje nem maradhat meg
+  // Felhasználóváltáskor az előző felhasználó adatai, keresése és tokenje nem maradhat meg
   useEffect(() => {
     dataEpoch.current++;
     userEpoch.current++;
@@ -92,6 +119,8 @@ export default function App() {
     setUsers([]);
     setLoadError(null);
     setNotice(null);
+    setSearch(EMPTY_SEARCH);
+    setAppliedSearch(EMPTY_SEARCH);
     void signIn(activeUsername);
   }, [activeUsername, signIn]);
 
@@ -113,6 +142,12 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [session, signIn]);
 
+  // A keresés a gépelés befejezése után fut, nem minden billentyűleütésre
+  useEffect(() => {
+    const timeout = setTimeout(() => setAppliedSearch(search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
   const loadReferenceData = useCallback(async (current: Session) => {
     const epoch = dataEpoch.current;
     try {
@@ -131,21 +166,36 @@ export default function App() {
   const refresh = useCallback(async () => {
     if (!session) return;
     const epoch = dataEpoch.current;
+    const ticket = ++refreshTicket.current;
+    const criteria = appliedSearch;
+    const isCurrent = () => epoch === dataEpoch.current && ticket === refreshTicket.current;
     try {
-      const [bikes, rentals] = await Promise.all([api.listBikes(), api.listRentals()]);
-      if (epoch !== dataEpoch.current) return;
-      setSnapshot({ bikes, rentals, fetchedAt: Date.now() });
+      const [bikes, rentals, found] = await Promise.all([
+        api.listBikes(),
+        api.listRentals(),
+        isSearchActive(criteria) ? api.searchBikes(criteria) : Promise.resolve(null),
+      ]);
+      if (!isCurrent()) return;
+      setSnapshot({ bikes, rentals, search: found, fetchedAt: Date.now() });
       setLoadError(null);
     } catch (error) {
-      if (epoch === dataEpoch.current) setLoadError(messageOf(error));
+      if (isCurrent()) setLoadError(messageOf(error));
     }
-  }, [session]);
+  }, [session, appliedSearch]);
 
   useEffect(() => {
-    if (!session) return;
-    void loadReferenceData(session);
-    void refresh();
-  }, [session, loadReferenceData, refresh]);
+    if (session) void loadReferenceData(session);
+  }, [session, loadReferenceData]);
+
+  useEffect(() => {
+    if (session) void refresh();
+  }, [session, refresh]);
+
+  // A művelet befejezésekor a legfrissebb (aktuális szűrővel készült) frissítést kell hívni, nem a művelet indításakor rögzítettet
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
 
   // A bérlések díja a szerveren számolódik, ezért időnként frissítjük
   useEffect(() => {
@@ -174,7 +224,7 @@ export default function App() {
       setNotice({ ok: false, text: messageOf(error) });
     }
     try {
-      await refresh();
+      await refreshRef.current();
     } finally {
       if (sameUser()) setBusy(false);
     }
@@ -275,11 +325,14 @@ export default function App() {
         </ul>
       </section>
 
+      <BikeSearchForm value={search} onChange={setSearch} summary={summaryOf(snapshot.search)} />
+
       <BikeList
-        bikes={snapshot.bikes}
+        bikes={snapshot.search ? snapshot.search.items : snapshot.bikes}
         tariffs={tariffs}
         user={user}
         busy={busy}
+        emptyMessage={snapshot.search ? 'Nincs a keresésnek megfelelő bicikli.' : undefined}
         onRent={(bike) => void rent(bike)}
         onChangeStatus={(bike, status) => void changeStatus(bike, status)}
       />

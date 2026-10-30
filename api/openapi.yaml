@@ -139,6 +139,60 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /api/bikes/search:
+    get:
+      tags: [Bikes]
+      operationId: searchBikes
+      summary: Biciklik keresése név, típus és státusz szerint
+      description: |
+        A feltételek ÉS kapcsolatban állnak, mindegyik elhagyható (feltétel nélkül minden bicikli a találat).
+        A névre kis- és nagybetűtől független, részlet-egyezés van; a speciális karakterek (pl. `%`, `_`) szó szerint értendők.
+        A találatok név szerint rendezettek; legfeljebb `limit` elem jön vissza, a `total` az összes találat száma.
+        Állomásvezetőnek és bérlőnek egyaránt elérhető.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: A bicikli nevének részlete (legfeljebb 50 karakter, a szóközök a két végén nem számítanak)
+          schema:
+            type: string
+            maxLength: 50
+            example: city
+        - name: type
+          in: query
+          required: false
+          description: Biciklitípus
+          schema:
+            type: string
+            enum: [city, mountain, electric]
+        - name: status
+          in: query
+          required: false
+          description: Státusz
+          schema:
+            type: string
+            enum: [available, in_use, maintenance]
+        - name: limit
+          in: query
+          required: false
+          description: A visszaadott elemek legnagyobb száma
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: A találatok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BikeSearchResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/bikes/{id}/status:
     patch:
       tags: [Bikes]
@@ -404,6 +458,19 @@ components:
           $ref: '#/components/schemas/BikeType'
         status:
           $ref: '#/components/schemas/BikeStatus'
+
+    BikeSearchResult:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bike'
+        total:
+          type: integer
+          format: int32
+          description: Az összes találat száma (a `limit` előtt)
 
     CreateBikeRequest:
       type: object

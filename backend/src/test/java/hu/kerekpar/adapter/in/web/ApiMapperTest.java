@@ -1,6 +1,7 @@
 package hu.kerekpar.adapter.in.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import hu.kerekpar.adapter.in.web.api.model.BikeStatusDto;
 import hu.kerekpar.adapter.in.web.api.model.BikeTypeDto;
@@ -10,6 +11,8 @@ import hu.kerekpar.adapter.in.web.api.model.TariffDto;
 import hu.kerekpar.adapter.in.web.api.model.UserRoleDto;
 import hu.kerekpar.application.port.in.LoginUseCase;
 import hu.kerekpar.application.port.in.RentalView;
+import hu.kerekpar.application.port.in.SearchBikesUseCase;
+import hu.kerekpar.domain.exception.InvalidInputException;
 import hu.kerekpar.domain.model.Bike;
 import hu.kerekpar.domain.model.BikeStatus;
 import hu.kerekpar.domain.model.BikeType;
@@ -19,6 +22,7 @@ import hu.kerekpar.domain.model.User;
 import hu.kerekpar.domain.model.UserRole;
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -103,6 +107,55 @@ class ApiMapperTest {
 
         assertThat(dto.getEndedAt()).isEqualTo(start.plusSeconds(600).toEpochMilli());
         assertThat(dto.getFee()).isEqualTo(450L);
+    }
+
+    @Test
+    void searchParametersAreParsedFromTheContractValues() {
+        assertThat(ApiMapper.parseBikeType("city")).isEqualTo(BikeType.CITY);
+        assertThat(ApiMapper.parseBikeType(" electric ")).isEqualTo(BikeType.ELECTRIC);
+        assertThat(ApiMapper.parseBikeStatus("in_use")).isEqualTo(BikeStatus.IN_USE);
+        assertThat(ApiMapper.parseBikeStatus("maintenance")).isEqualTo(BikeStatus.MAINTENANCE);
+    }
+
+    @Test
+    void blankSearchParametersMeanNoFilter() {
+        for (String blank : new String[] {null, "", "   "}) {
+            assertThat(ApiMapper.parseBikeType(blank)).isNull();
+            assertThat(ApiMapper.parseBikeStatus(blank)).isNull();
+        }
+    }
+
+    @Test
+    void unknownSearchParametersAreRejectedWithTheirOwnCodes() {
+        for (String bad : new String[] {"CITY", "City", "rakett", "city;", "ci ty", "0"}) {
+            assertThatThrownBy(() -> ApiMapper.parseBikeType(bad))
+                    .isInstanceOfSatisfying(InvalidInputException.class,
+                            e -> assertThat(e.code()).isEqualTo("INVALID_BIKE_TYPE"));
+        }
+        for (String bad : new String[] {"IN_USE", "inuse", "broken", "available,in_use"}) {
+            assertThatThrownBy(() -> ApiMapper.parseBikeStatus(bad))
+                    .isInstanceOfSatisfying(InvalidInputException.class,
+                            e -> assertThat(e.code()).isEqualTo("INVALID_STATUS"));
+        }
+    }
+
+    @Test
+    void searchResultKeepsItemsOrderAndTotal() {
+        var dto = ApiMapper.toDto(new SearchBikesUseCase.SearchResult(List.of(
+                new Bike("b2", "City-02", BikeType.CITY, BikeStatus.IN_USE),
+                new Bike("b1", "City-01", BikeType.CITY, BikeStatus.AVAILABLE)), 7));
+
+        assertThat(dto.getItems()).extracting(b -> b.getId()).containsExactly("b2", "b1");
+        assertThat(dto.getItems().get(0).getStatus()).isEqualTo(BikeStatusDto.IN_USE);
+        assertThat(dto.getTotal()).isEqualTo(7);
+    }
+
+    @Test
+    void emptySearchResultIsAnEmptyListNotNull() {
+        var dto = ApiMapper.toDto(new SearchBikesUseCase.SearchResult(List.of(), 0));
+
+        assertThat(dto.getItems()).isNotNull().isEmpty();
+        assertThat(dto.getTotal()).isZero();
     }
 
     @Test

@@ -110,3 +110,18 @@ A beszélgetések összefoglalóját időrendben ide naplózzuk.
   alapértelmezetten a backend fejlesztői demo jelszava) csendben bejelentkezik, így a backend minden kérést valódi tokennel hitelesít. A token csak memóriában él,
   lejárat előtt 60 mp-cel és 401 esetén csendben megújul. Valódi alkalmazásban bejelentkező űrlap kellene, és a jelszó nem kerülhetne a kliensbe.
 - Tesztek: 209 backend teszt (domain, application, in-memory és biztonsági adapterek, web, ArchUnit, PostgreSQL integráció); a szerepkör-mátrix, tokenhamisítás és actor-hamisítás tesztek a `SecurityTest`-ben.
+
+### Bicikli keresés (új use case)
+
+- Szerződés: `GET /api/bikes/search?q&type&status&limit` → `{items: Bike[], total}` (név részlete kis/nagybetűtől függetlenül, típus, státusz, ÉS kapcsolat, `limit` 1–100, alapérték 50, név szerint rendezett).
+- Réteg: `BikeSearchCriteria` (domain: normalizálás, ellenőrzés, `matches`), `SearchBikesUseCase` + `SearchBikesService` (application), a vezérlő `BikeController.searchBikes`, `ApiMapper.parseBikeType/parseBikeStatus`.
+- Biztonság: csak hitelesítve (bérlő és állomásvezető is); az actor a tokenből jön (`CurrentActor`), a use case az `ActorGuard`-dal a tárolt felhasználót is ellenőrzi (törölt felhasználó tokenje → 401 `UNKNOWN_ACTOR`);
+  a `GET /api/bikes/search` külön matcher a `SecurityFilterChain`-ben, minden más metódus a `denyAll`-ra esik.
+- Bemenet: a szűrés Java oldalon fut (nincs SQL/LIKE, a `%`, `_`, `'` karakterek szó szerint értendők, az in-memory és a PostgreSQL ugyanúgy viselkedik, az ékezetes nevek is, nem függ az adatbázis lokalizációjától);
+  hossz kódpontban számolva (emoji), érvénytelen típus/státusz/limit/szöveg → 400 saját hibakóddal, nem szám limit → `INVALID_REQUEST`.
+- Naplózás: a keresési szöveg vezérlőkarakter-mentesítve és csonkítva kerül a naplóba (`LogText`, a `LoginService` is ezt használja).
+- Frontend: kereső űrlap (név, típus, státusz, törlés), 300 ms debounce, összegzés ("N találat", csonkolva: "X megjelenítve, összesen Y"), a bérlések neveihez a teljes lista is lekérődik;
+  a legutóbbi frissítés számít, felhasználóváltáskor a szűrő törlődik.
+- Ellenőrzés: backend 267 teszt, frontend 319 teszt (13 fájl), `tsc`, build zöld; a státuszszűrő mutációs próbája 4 tesztet bukott. A tesztek feltártak egy valódi frontend hibát
+  (a művelet végi frissítés a régi szűrőt használta, javítva: `refreshRef`). Valódi PostgreSQL + böngésző: kis/nagybetű, ékezet, `%`, SQL-szerű szöveg, típus/státusz szűrés, üres állapot, bérlés szűrt nézetben, felhasználóváltáskor a szűrő törlődik, 401 token nélkül, 400 hibás paraméterre.
+- Tudott korlát: a szűrés a teljes listát olvassa (állomásnyi mennyiségnél elegendő); nagy állománynál adatbázis oldali szűrés és lapozás kell.

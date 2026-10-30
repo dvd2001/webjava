@@ -35,7 +35,7 @@ public class LoginService implements LoginUseCase {
         String password = command.password() == null ? "" : command.password();
         if (username.isEmpty() || username.length() > MAX_USERNAME_LENGTH
                 || password.isEmpty() || password.length() > MAX_PASSWORD_LENGTH) {
-            log.warn("Sikertelen bejelentkezés: érvénytelen bemenet, username={}", printable(username));
+            log.warn("Sikertelen bejelentkezés: érvénytelen bemenet, username={}", LogText.printable(username));
             throw invalidCredentials();
         }
 
@@ -44,7 +44,7 @@ public class LoginService implements LoginUseCase {
         // a hash-ellenőrzés mindig lefut, a hiányzó felhasználó nem gyorsabb válasz
         boolean passwordMatches = hasher.matches(password, storedHash == null ? hasher.fakeHash() : storedHash);
         if (found.isEmpty() || storedHash == null || !passwordMatches) {
-            log.warn("Sikertelen bejelentkezés: username={}", printable(username));
+            log.warn("Sikertelen bejelentkezés: username={}", LogText.printable(username));
             throw invalidCredentials();
         }
 
@@ -55,11 +55,5 @@ public class LoginService implements LoginUseCase {
 
     private static UnauthenticatedException invalidCredentials() {
         return new UnauthenticatedException("INVALID_CREDENTIALS", "Hibás felhasználónév vagy jelszó.");
-    }
-
-    /** A felhasználó által megadott érték naplózása előtt a vezérlőkarakterek (naplóhamisítás) eltávolítása. */
-    private static String printable(String value) {
-        String cleaned = value.replaceAll("\\p{Cntrl}", "?");
-        return cleaned.length() > 40 ? cleaned.substring(0, 40) + "…" : cleaned;
     }
 }

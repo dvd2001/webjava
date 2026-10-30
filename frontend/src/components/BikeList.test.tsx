@@ -13,7 +13,7 @@ const bikes: Bike[] = [
 
 function renderList(
   user: User,
-  options: { bikes?: Bike[]; tariffs?: Tariffs; busy?: boolean } = {},
+  options: { bikes?: Bike[]; tariffs?: Tariffs; busy?: boolean; emptyMessage?: string } = {},
 ) {
   const onRent = vi.fn();
   const onChangeStatus = vi.fn();
@@ -23,6 +23,7 @@ function renderList(
       tariffs={options.tariffs ?? tariffs}
       user={user}
       busy={options.busy ?? false}
+      emptyMessage={options.emptyMessage}
       onRent={onRent}
       onChangeStatus={onChangeStatus}
     />,
@@ -147,6 +148,31 @@ describe('BikeList', () => {
       renderList(manager, { busy: true });
       expect(screen.getByRole('combobox', { name: 'City-01 státusza' })).toBeDisabled();
       expect(screen.getByRole('combobox', { name: 'Villám-03 státusza' })).toBeDisabled();
+    });
+  });
+
+  describe('üres lista üzenete (emptyMessage)', () => {
+    it('alapértelmezés szerint az állomás üres listájának üzenetét mutatja', () => {
+      renderList(manager, { bikes: [] });
+      expect(screen.getByText('Még nincs bicikli az állomáson.')).toBeInTheDocument();
+    });
+
+    it('megadott üzenet esetén azt mutatja az alapértelmezett helyett', () => {
+      renderList(renter, { bikes: [], emptyMessage: 'Nincs a keresésnek megfelelő bicikli.' });
+      expect(screen.getByText('Nincs a keresésnek megfelelő bicikli.')).toBeInTheDocument();
+      expect(screen.queryByText('Még nincs bicikli az állomáson.')).not.toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    });
+
+    it('nem üres listánál az üzenetet nem jeleníti meg', () => {
+      renderList(renter, { emptyMessage: 'Nincs a keresésnek megfelelő bicikli.' });
+      expect(screen.queryByText('Nincs a keresésnek megfelelő bicikli.')).not.toBeInTheDocument();
+      expect(screen.getAllByRole('row')).toHaveLength(bikes.length + 1);
+    });
+
+    it('az üres üzenet nem tartalmaz műveleti gombot', () => {
+      renderList(manager, { bikes: [], emptyMessage: 'Nincs találat.' });
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
   });
 });

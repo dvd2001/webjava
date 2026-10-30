@@ -12,6 +12,7 @@ import hu.kerekpar.application.port.in.ListUsersUseCase;
 import hu.kerekpar.application.port.in.LoginUseCase;
 import hu.kerekpar.application.port.in.RentBikeUseCase;
 import hu.kerekpar.application.port.in.ReturnBikeUseCase;
+import hu.kerekpar.application.port.in.SearchBikesUseCase;
 import hu.kerekpar.application.port.out.BikeRepository;
 import hu.kerekpar.application.port.out.ClockPort;
 import hu.kerekpar.application.port.out.CredentialsRepository;
@@ -30,6 +31,7 @@ import hu.kerekpar.application.usecase.ListUsersService;
 import hu.kerekpar.application.usecase.LoginService;
 import hu.kerekpar.application.usecase.RentBikeService;
 import hu.kerekpar.application.usecase.ReturnBikeService;
+import hu.kerekpar.application.usecase.SearchBikesService;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -62,6 +64,11 @@ public class BeanConfig {
     @Bean
     ListBikesUseCase listBikesUseCase(BikeRepository bikes) {
         return new ListBikesService(bikes);
+    }
+
+    @Bean
+    SearchBikesUseCase searchBikesUseCase(BikeRepository bikes, UserRepository users) {
+        return new SearchBikesService(bikes, users);
     }
 
     @Bean

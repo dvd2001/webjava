@@ -1,6 +1,7 @@
 package hu.kerekpar.adapter.in.web;
 
 import hu.kerekpar.adapter.in.web.api.model.BikeDto;
+import hu.kerekpar.adapter.in.web.api.model.BikeSearchResultDto;
 import hu.kerekpar.adapter.in.web.api.model.BikeStatusDto;
 import hu.kerekpar.adapter.in.web.api.model.BikeTypeDto;
 import hu.kerekpar.adapter.in.web.api.model.LoginResponseDto;
@@ -10,6 +11,8 @@ import hu.kerekpar.adapter.in.web.api.model.UserDto;
 import hu.kerekpar.adapter.in.web.api.model.UserRoleDto;
 import hu.kerekpar.application.port.in.LoginUseCase;
 import hu.kerekpar.application.port.in.RentalView;
+import hu.kerekpar.application.port.in.SearchBikesUseCase;
+import hu.kerekpar.domain.exception.InvalidInputException;
 import hu.kerekpar.domain.model.Bike;
 import hu.kerekpar.domain.model.BikeStatus;
 import hu.kerekpar.domain.model.BikeType;
@@ -33,6 +36,36 @@ final class ApiMapper {
     static LoginResponseDto toDto(LoginUseCase.LoginResult result) {
         return new LoginResponseDto(result.accessToken(), LoginResponseDto.TokenTypeEnum.BEARER,
                 result.expiresAt().toEpochMilli(), toDto(result.user()));
+    }
+
+    static BikeSearchResultDto toDto(SearchBikesUseCase.SearchResult result) {
+        return new BikeSearchResultDto(result.items().stream().map(ApiMapper::toDto).toList(), result.total());
+    }
+
+    /** A keresés típus-paramétere (a szerződés kisbetűs értéke); az üres érték "nincs szűrés". */
+    static BikeType parseBikeType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        for (BikeTypeDto candidate : BikeTypeDto.values()) {
+            if (candidate.getValue().equals(raw.trim())) {
+                return toDomain(candidate);
+            }
+        }
+        throw new InvalidInputException("INVALID_BIKE_TYPE", "A típus értéke: city, mountain vagy electric.");
+    }
+
+    /** A keresés státusz-paramétere (a szerződés kisbetűs értéke); az üres érték "nincs szűrés". */
+    static BikeStatus parseBikeStatus(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        for (BikeStatusDto candidate : BikeStatusDto.values()) {
+            if (candidate.getValue().equals(raw.trim())) {
+                return toDomain(candidate);
+            }
+        }
+        throw new InvalidInputException("INVALID_STATUS", "A státusz értéke: available, in_use vagy maintenance.");
     }
 
     static BikeDto toDto(Bike bike) {

@@ -5,6 +5,7 @@ import type { Bike, BikeStatus, BikeType, Rental, Tariffs, User } from '../types
 export interface RecordedRequest {
   method: string;
   path: string;
+  query: Record<string, string>;
   authorization: string | null;
   body: unknown;
 }
@@ -13,6 +14,7 @@ type ResponseFactory = () => Response | Promise<Response>;
 
 const RETURN_FEE = 315;
 const SESSION_LENGTH_MS = 60 * 60 * 1000;
+const DEFAULT_SEARCH_LIMIT = 50;
 
 const BIKE_TYPES: BikeType[] = ['city', 'mountain', 'electric'];
 const BIKE_STATUSES: BikeStatus[] = ['available', 'in_use', 'maintenance'];
@@ -29,7 +31,10 @@ function field(body: unknown, key: string): unknown {
   return typeof body === 'object' && body !== null ? Reflect.get(body, key) : undefined;
 }
 
-export function createFakeServer({ sessionLengthMs = SESSION_LENGTH_MS }: { sessionLengthMs?: number } = {}) {
+export function createFakeServer({
+  sessionLengthMs = SESSION_LENGTH_MS,
+  searchLimit = DEFAULT_SEARCH_LIMIT,
+}: { sessionLengthMs?: number; searchLimit?: number } = {}) {
   const accounts = DEMO_USERS.map((demo, index) => {
     const user: User = { id: `u${index + 1}`, name: demo.name, role: demo.role };
     return { username: demo.username, user };
@@ -87,7 +92,31 @@ export function createFakeServer({ sessionLengthMs = SESSION_LENGTH_MS }: { sess
     return revokedTokens.has(token) ? null : (issuedTokens.get(token) ?? null);
   }
 
-  function handle(method: string, path: string, body: unknown, user: User | null): Response {
+  function searchBikes(query: Record<string, string>): Response {
+    const q = (query.q ?? '').trim();
+    const type = query.type;
+    const status = query.status;
+    const limitText = query.limit;
+    const limit = limitText === undefined ? searchLimit : Number(limitText);
+    const invalid =
+      q.length > 50 ||
+      (type !== undefined && !BIKE_TYPES.some((t) => t === type)) ||
+      (status !== undefined && !BIKE_STATUSES.some((s) => s === status)) ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100;
+    if (invalid) return apiError(400, 'VALIDATION_ERROR', 'Érvénytelen keresési feltétel.');
+
+    const needle = q.toLowerCase();
+    const matches = state.bikes
+      .filter((b) => b.name.toLowerCase().includes(needle))
+      .filter((b) => type === undefined || b.type === type)
+      .filter((b) => status === undefined || b.status === status)
+      .sort((a, b) => a.name.localeCompare(b.name, 'hu'));
+    return json({ items: matches.slice(0, limit), total: matches.length });
+  }
+
+  function handle(method: string, path: string, query: Record<string, string>, body: unknown, user: User | null): Response {
     if (method === 'POST' && path === '/api/auth/login') {
       const username = String(field(body, 'username'));
       const account = accounts.find((a) => a.username === username);
@@ -106,6 +135,7 @@ export function createFakeServer({ sessionLengthMs = SESSION_LENGTH_MS }: { sess
     if (method === 'GET' && path === '/api/users') return user.role === 'manager' ? json(users) : forbidden();
     if (method === 'GET' && path === '/api/tariffs') return json(tariffs);
     if (method === 'GET' && path === '/api/bikes') return json(state.bikes);
+    if (method === 'GET' && path === '/api/bikes/search') return searchBikes(query);
 
     if (method === 'POST' && path === '/api/bikes') {
       if (user.role !== 'manager') return forbidden();
@@ -179,16 +209,18 @@ export function createFakeServer({ sessionLengthMs = SESSION_LENGTH_MS }: { sess
 
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const method = init?.method ?? 'GET';
-    const path = String(input);
+    const url = new URL(String(input), 'http://localhost');
+    const path = url.pathname;
+    const query = Object.fromEntries(url.searchParams);
     const key = `${method} ${path}`;
     const headers = new Headers(init?.headers);
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
     const authorization = headers.get('Authorization');
-    requests.push({ method, path, authorization, body });
+    requests.push({ method, path, query, authorization, body });
 
     const override = overrides.get(key);
     // A válasz a kérés pillanatában készül el, a visszatartás csak a kézbesítését késlelteti
-    const response = override ? await override() : handle(method, path, body, currentUser(authorization));
+    const response = override ? await override() : handle(method, path, query, body, currentUser(authorization));
     const gate = holds.get(key)?.shift();
     if (gate) await gate;
     return response;
@@ -199,6 +231,7 @@ export function createFakeServer({ sessionLengthMs = SESSION_LENGTH_MS }: { sess
     state,
     requests,
     countRequests: (method: string, path: string) => requests.filter((r) => r.method === method && r.path === path).length,
+    searchRequests: () => requests.filter((r) => r.method === 'GET' && r.path === '/api/bikes/search'),
     override: (method: string, path: string, factory: ResponseFactory) => {
       overrides.set(`${method} ${path}`, factory);
     },

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError, setAuthToken, setUnauthorizedHandler } from './client';
+import type { SearchCriteria } from '../types';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -449,5 +450,178 @@ describe('401 kezelése', () => {
     await rejectionOf(api.listBikes());
 
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('searchBikes', () => {
+  const emptyResult = { items: [], total: 0 };
+
+  it.each([
+    ['feltétel nélkül', { q: '', type: '', status: '' }, '/api/bikes/search'],
+    ['csak névvel', { q: 'city', type: '', status: '' }, '/api/bikes/search?q=city'],
+    ['csak típussal', { q: '', type: 'mountain', status: '' }, '/api/bikes/search?type=mountain'],
+    ['csak státusszal', { q: '', type: '', status: 'in_use' }, '/api/bikes/search?status=in_use'],
+    ['névvel és típussal', { q: 'city', type: 'electric', status: '' }, '/api/bikes/search?q=city&type=electric'],
+    ['névvel és státusszal', { q: 'city', type: '', status: 'available' }, '/api/bikes/search?q=city&status=available'],
+    [
+      'típussal és státusszal',
+      { q: '', type: 'city', status: 'maintenance' },
+      '/api/bikes/search?type=city&status=maintenance',
+    ],
+    [
+      'mindhárom feltétellel',
+      { q: 'hegyi', type: 'mountain', status: 'available' },
+      '/api/bikes/search?q=hegyi&type=mountain&status=available',
+    ],
+  ] satisfies [string, SearchCriteria, string][])('a keresés %s a megfelelő URL-t kéri', async (_name, criteria, url) => {
+    respondWith(emptyResult);
+
+    await api.searchBikes(criteria);
+
+    expect(lastCall().url).toBe(url);
+    expect(lastCall().init.method).toBe('GET');
+  });
+
+  it('a találatokat változtatás nélkül adja vissza', async () => {
+    const result = { items: [{ id: 'b1', name: 'City-01', type: 'city', status: 'available' }], total: 1 };
+    respondWith(result);
+
+    await expect(api.searchBikes({ q: 'city', type: '', status: '' })).resolves.toEqual(result);
+  });
+
+  it('a név két végéről levágja a szóközöket', async () => {
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q: '  city 01 \t', type: '', status: '' });
+
+    expect(new URL(lastCall().url, 'http://localhost').searchParams.get('q')).toBe('city 01');
+  });
+
+  it.each(['', ' ', '   ', '\t\n'])('a csak szóközt tartalmazó (%j) név kimarad a lekérdezésből', async (q) => {
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q, type: '', status: '' });
+
+    expect(lastCall().url).toBe('/api/bikes/search');
+  });
+
+  it('a szóközös névnél is megtartja a többi feltételt', async () => {
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q: '  ', type: 'city', status: '' });
+
+    expect(lastCall().url).toBe('/api/bikes/search?type=city');
+  });
+
+  it.each(['100%', 'a&b', 'a=b', 'ékezetes őűú', 'x?y#z', 'a+b', 'tab\tbel', '😀'])(
+    'a(z) %j név speciális karaktereit kódolja, és visszafejtve ugyanazt kapja',
+    async (q) => {
+      respondWith(emptyResult);
+
+      await api.searchBikes({ q, type: 'city', status: '' });
+
+      const { url } = lastCall();
+      expect(url).not.toMatch(/[ #]/);
+      const parsed = new URL(url, 'http://localhost');
+      expect(parsed.pathname).toBe('/api/bikes/search');
+      expect(parsed.searchParams.get('q')).toBe(q.trim());
+      expect(parsed.searchParams.get('type')).toBe('city');
+      expect([...parsed.searchParams.keys()]).toEqual(['q', 'type']);
+    },
+  );
+
+  it('a % és & karaktert százalékkódolva küldi', async () => {
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q: '100%&x', type: '', status: '' });
+
+    expect(lastCall().url).toBe('/api/bikes/search?q=100%25%26x');
+  });
+
+  it('az ékezetes betűket UTF-8 százalékkódolással küldi', async () => {
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q: 'Villám', type: '', status: '' });
+
+    expect(lastCall().url).toBe('/api/bikes/search?q=Vill%C3%A1m');
+  });
+
+  it('nem küld limit paramétert és törzset', async () => {
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q: 'a', type: 'city', status: 'available' });
+
+    expect(new URL(lastCall().url, 'http://localhost').searchParams.has('limit')).toBe(false);
+    expect(lastCall().init.body).toBeUndefined();
+    expect(lastCall().headers.has('Content-Type')).toBe(false);
+    expect(lastCall().headers.get('Accept')).toBe('application/json');
+  });
+
+  it('tokennel Bearer Authorization fejlécet küld (hitelesített kérés)', async () => {
+    setAuthToken('keresos-token');
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q: 'city', type: '', status: '' });
+
+    expect(lastCall().headers.get('Authorization')).toBe('Bearer keresos-token');
+  });
+
+  it('token nélkül nem küld Authorization fejlécet', async () => {
+    respondWith(emptyResult);
+
+    await api.searchBikes({ q: 'city', type: '', status: '' });
+
+    expect(lastCall().headers.has('Authorization')).toBe(false);
+  });
+
+  it('a 400-as hibát ApiError-ként dobja, és nem hívja az unauthorized handlert', async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    setAuthToken('tok');
+    respondWith({ code: 'VALIDATION_ERROR', message: 'Érvénytelen keresési feltétel.' }, 400);
+
+    const error = await rejectionOf(api.searchBikes({ q: 'city', type: '', status: '' }));
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 400, code: 'VALIDATION_ERROR', message: 'Érvénytelen keresési feltétel.' });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('a 401-es hibánál tokennel meghívja az unauthorized handlert, és ApiError-t dob', async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    setAuthToken('lejart');
+    respondWith({ code: 'UNAUTHENTICATED', message: 'Lejárt a token.' }, 401);
+
+    const error = await rejectionOf(api.searchBikes({ q: '', type: 'city', status: '' }));
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ status: 401, code: 'UNAUTHENTICATED', message: 'Lejárt a token.' });
+  });
+
+  it('token nélkül a 401 nem hívja meg a handlert', async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    respondWith({ code: 'UNAUTHENTICATED', message: 'Nincs token.' }, 401);
+
+    await rejectionOf(api.searchBikes({ q: '', type: '', status: '' }));
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('üres törzsű 503-nál a szerver nem érhető el üzenetet adja', async () => {
+    fetchMock.mockImplementation(async () => new Response('', { status: 503 }));
+
+    const error = await rejectionOf(api.searchBikes({ q: 'a', type: '', status: '' }));
+
+    expect(error).toMatchObject({ status: 503, message: 'A szerver jelenleg nem érhető el.' });
+  });
+
+  it('hálózati hibánál 0-s státuszú ApiError-t dob', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const error = await rejectionOf(api.searchBikes({ q: 'a', type: '', status: '' }));
+
+    expect(error).toMatchObject({ status: 0, code: 'NETWORK_ERROR', message: 'A szerver nem érhető el.' });
   });
 });

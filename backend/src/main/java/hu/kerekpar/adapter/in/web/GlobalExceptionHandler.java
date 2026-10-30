@@ -15,6 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.beans.TypeMismatchException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -52,6 +54,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         log.warn("Érvénytelen kérés törzs: {}", ex.getMessage());
         return ResponseEntity.status(status)
                 .body(new ApiErrorDto("INVALID_REQUEST", "Érvénytelen kérés: hibás vagy hiányzó adat."));
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        String parameter = ex instanceof MethodArgumentTypeMismatchException mismatch
+                ? mismatch.getName()
+                : String.valueOf(ex.getPropertyName());
+        log.warn("Érvénytelen paraméter típus: {}", parameter);
+        return ResponseEntity.status(status)
+                .body(new ApiErrorDto("INVALID_REQUEST", "Érvénytelen paraméter: " + parameter));
     }
 
     @Override

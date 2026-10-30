@@ -1,4 +1,14 @@
-import type { Bike, BikeStatus, BikeType, LoginResponse, Rental, Tariffs, User } from '../types';
+import type {
+  Bike,
+  BikeSearchResult,
+  BikeStatus,
+  BikeType,
+  LoginResponse,
+  Rental,
+  SearchCriteria,
+  Tariffs,
+  User,
+} from '../types';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -68,6 +78,14 @@ export const api = {
   listUsers: () => request<User[]>('/api/users'),
   listTariffs: () => request<Tariffs>('/api/tariffs'),
   listBikes: () => request<Bike[]>('/api/bikes'),
+  searchBikes: (criteria: SearchCriteria) => {
+    const params = new URLSearchParams();
+    if (criteria.q.trim() !== '') params.set('q', criteria.q.trim());
+    if (criteria.type !== '') params.set('type', criteria.type);
+    if (criteria.status !== '') params.set('status', criteria.status);
+    const query = params.toString();
+    return request<BikeSearchResult>(query ? `/api/bikes/search?${query}` : '/api/bikes/search');
+  },
   createBike: (name: string, type: BikeType) => request<Bike>('/api/bikes', { method: 'POST', body: { name, type } }),
   changeBikeStatus: (bikeId: string, status: BikeStatus) =>
     request<Bike>(`/api/bikes/${encodeURIComponent(bikeId)}/status`, { method: 'PATCH', body: { status } }),

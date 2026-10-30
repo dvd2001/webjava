@@ -150,7 +150,7 @@ describe('App – automatikus bejelentkezés induláskor', () => {
 
     expect(screen.queryByRole('heading', { name: 'Új bicikli felvétele' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Hozzáadás' })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('combobox')).toEqual([switcher()]);
+    expect(screen.getAllByRole('combobox')).toEqual([switcher(), screen.getByRole('combobox', { name: 'Típus szűrő' }), screen.getByRole('combobox', { name: 'Státusz szűrő' })]);
   });
 
   it('csak az elérhető biciklinél engedélyezi a Bérlés gombot', async () => {
@@ -267,7 +267,9 @@ describe('App – váltás állomásvezetőre', () => {
     await switchAndWait(user, 'anna');
 
     await user.type(screen.getByLabelText('Név / azonosító'), 'Hegyi-09');
-    await user.selectOptions(screen.getByLabelText('Típus'), 'mountain');
+    const addForm = screen.getByRole('heading', { name: 'Új bicikli felvétele' }).closest('section');
+    if (!addForm) throw new Error('Hiányzik az új bicikli űrlap');
+    await user.selectOptions(within(addForm).getByLabelText('Típus'), 'mountain');
     await user.click(screen.getByRole('button', { name: 'Hozzáadás' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent('Hegyi-09 felvéve.');
@@ -947,5 +949,541 @@ describe('App – betöltési hibák és háttérfrissítés', () => {
     await advance(5_000);
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+});
+
+function searchClock() {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  return userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms), delay: null });
+}
+
+const nameFilter = () => screen.getByRole('searchbox', { name: 'Név részlete' });
+const typeFilter = () => screen.getByRole('combobox', { name: 'Típus szűrő' });
+const statusFilter = () => screen.getByRole('combobox', { name: 'Státusz szűrő' });
+const searchArea = () => screen.getByRole('search', { name: 'Bicikli keresése' });
+const clearFiltersButton = () => screen.queryByRole('button', { name: 'Szűrők törlése' });
+
+function summaryText() {
+  return searchArea().querySelector('[aria-live="polite"]')?.textContent;
+}
+
+function listedBikes() {
+  const section = screen.getByRole('heading', { name: 'Biciklik' }).closest('section');
+  if (!section) throw new Error('Hiányzik a biciklilista szakasz');
+  return within(section)
+    .queryAllByRole('row')
+    .slice(1)
+    .map((row) => within(row).getAllByRole('cell')[0].textContent);
+}
+
+function seedBikes() {
+  server.state.bikes.push(
+    { id: 'b4', name: 'City-04', type: 'city', status: 'maintenance' },
+    { id: 'b5', name: 'Hegyi-05', type: 'mountain', status: 'available' },
+  );
+}
+
+const ALL_BIKES = ['City-01', 'City-04', 'Hegyi-02', 'Hegyi-05', 'Villám-03'];
+
+async function startSearchApp() {
+  const user = searchClock();
+  await startApp(user);
+  return user;
+}
+
+describe('App – bicikli keresés', () => {
+  beforeEach(() => {
+    seedBikes();
+  });
+
+  describe('szűrő nélkül', () => {
+    it('a teljes listát mutatja, üres összegzéssel, és nem indít keresést', async () => {
+      await startSearchApp();
+
+      expect([...listedBikes()].sort()).toEqual(ALL_BIKES);
+      expect(summaryText()).toBe('');
+      expect(nameFilter()).toHaveValue('');
+      expect(typeFilter()).toHaveValue('');
+      expect(statusFilter()).toHaveValue('');
+      expect(clearFiltersButton()).not.toBeInTheDocument();
+
+      await advance(1_000);
+      expect(server.searchRequests()).toHaveLength(0);
+    });
+  });
+
+  describe('debounce', () => {
+    it('több billentyű után is csak egyetlen keresést indít, a gépelés befejezése után', async () => {
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), 'city');
+      expect(nameFilter()).toHaveValue('city');
+      expect(server.searchRequests()).toHaveLength(0);
+
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+
+      expect(server.searchRequests()).toHaveLength(1);
+      expect(server.searchRequests()[0].query).toEqual({ q: 'city' });
+      expect(server.searchRequests()[0].authorization).toBe(`Bearer ${server.tokenFor('peter')}`);
+    });
+
+    it('a következő billentyű újraindítja a várakozást', async () => {
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), 'ci');
+      await advance(200);
+      expect(server.searchRequests()).toHaveLength(0);
+      await user.type(nameFilter(), 'ty');
+      await advance(200);
+      expect(server.searchRequests()).toHaveLength(0);
+
+      await advance(100);
+      await waitFor(() => expect(server.searchRequests()).toHaveLength(1));
+      expect(server.searchRequests()[0].query).toEqual({ q: 'city' });
+    });
+
+    it('a szűrők gyors egymás utáni módosítása is egyetlen keresést indít az összes feltétellel', async () => {
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), 'i');
+      await user.selectOptions(typeFilter(), 'mountain');
+      await user.selectOptions(statusFilter(), 'available');
+      expect(server.searchRequests()).toHaveLength(0);
+      await advance(300);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['Hegyi-05']));
+      expect(server.searchRequests()).toHaveLength(1);
+      expect(server.searchRequests()[0].query).toEqual({ q: 'i', type: 'mountain', status: 'available' });
+    });
+  });
+
+  describe('szűrők', () => {
+    it('a név részletére kis-nagybetűtől és a két végén lévő szóközöktől függetlenül szűr', async () => {
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), '  CITY ');
+      await advance(300);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+      expect(server.searchRequests()[0].query).toEqual({ q: 'CITY' });
+    });
+
+    it('a típusszűrő csak az adott típusú biciklit mutatja', async () => {
+      const user = await startSearchApp();
+
+      await user.selectOptions(typeFilter(), 'mountain');
+      await advance(300);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['Hegyi-02', 'Hegyi-05']));
+      expect(server.searchRequests()[0].query).toEqual({ type: 'mountain' });
+      expect(summaryText()).toBe('2 találat');
+    });
+
+    it('a státuszszűrő csak az adott státuszú biciklit mutatja', async () => {
+      const user = await startSearchApp();
+
+      await user.selectOptions(statusFilter(), 'available');
+      await advance(300);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'Hegyi-05']));
+      expect(server.searchRequests()[0].query).toEqual({ status: 'available' });
+    });
+
+    it('a név és a státusz kombinálva szűkíti a találatokat', async () => {
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), 'hegyi');
+      await user.selectOptions(statusFilter(), 'available');
+      await advance(300);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['Hegyi-05']));
+      expect(server.searchRequests()[0].query).toEqual({ q: 'hegyi', status: 'available' });
+      expect(summaryText()).toBe('1 találat');
+    });
+
+    it('a típus és a státusz kombinálva szűkíti a találatokat', async () => {
+      const user = await startSearchApp();
+
+      await user.selectOptions(typeFilter(), 'city');
+      await user.selectOptions(statusFilter(), 'maintenance');
+      await advance(300);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['City-04']));
+      expect(server.searchRequests()[0].query).toEqual({ type: 'city', status: 'maintenance' });
+    });
+
+    it('a Minden típus visszaválasztása megszünteti a típusszűrést', async () => {
+      const user = await startSearchApp();
+      await user.selectOptions(typeFilter(), 'electric');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['Villám-03']));
+
+      await user.selectOptions(typeFilter(), 'Minden típus');
+      await advance(300);
+
+      await waitFor(() => expect([...listedBikes()].sort()).toEqual(ALL_BIKES));
+      expect(summaryText()).toBe('');
+    });
+  });
+
+  describe('összegzés és üres találat', () => {
+    it('a találatok számát mutatja', async () => {
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+
+      await waitFor(() => expect(summaryText()).toBe('2 találat'));
+    });
+
+    it('csonkolt találatnál megjelenített és összes számot is mutat (a szerver limitje)', async () => {
+      startServer({ searchLimit: 2 });
+      seedBikes();
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), '-0');
+      await advance(300);
+
+      await waitFor(() => expect(summaryText()).toBe('2 találat megjelenítve, összesen 5'));
+      expect(listedBikes()).toEqual(['City-01', 'City-04']);
+    });
+
+    it('az alapértelmezett 50-es limitnél több találatot csonkolva jelzi', async () => {
+      for (let i = 1; i <= 52; i++) {
+        server.state.bikes.push({ id: `t${i}`, name: `Tömeg-${String(i).padStart(2, '0')}`, type: 'city', status: 'available' });
+      }
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), 'tömeg');
+      await advance(300);
+
+      await waitFor(() => expect(summaryText()).toBe('50 találat megjelenítve, összesen 52'));
+      expect(listedBikes()).toHaveLength(50);
+      expect(listedBikes()[0]).toBe('Tömeg-01');
+    });
+
+    it('a pontosan a limitnek megfelelő találatszámnál nem jelez csonkolást', async () => {
+      startServer({ searchLimit: 2 });
+      seedBikes();
+      const user = await startSearchApp();
+
+      await user.selectOptions(typeFilter(), 'city');
+      await advance(300);
+
+      await waitFor(() => expect(summaryText()).toBe('2 találat'));
+    });
+
+    it('találat nélkül a keresésre vonatkozó üres üzenetet mutatja táblázat nélkül', async () => {
+      const user = await startSearchApp();
+
+      await user.type(nameFilter(), 'nincs-ilyen');
+      await advance(300);
+
+      expect(await screen.findByText('Nincs a keresésnek megfelelő bicikli.')).toBeInTheDocument();
+      expect(screen.queryByText('Még nincs bicikli az állomáson.')).not.toBeInTheDocument();
+      expect(listedBikes()).toEqual([]);
+      expect(summaryText()).toBe('0 találat');
+      expect(clearFiltersButton()).toBeInTheDocument();
+    });
+  });
+
+  describe('szűrők törlése', () => {
+    it('visszaállítja a teljes listát és az üres összegzést, további keresés nélkül', async () => {
+      const user = await startSearchApp();
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+      expect(server.searchRequests()).toHaveLength(1);
+
+      const button = clearFiltersButton();
+      if (!button) throw new Error('A Szűrők törlése gomb hiányzik');
+      await user.click(button);
+      await advance(300);
+
+      await waitFor(() => expect([...listedBikes()].sort()).toEqual(ALL_BIKES));
+      expect(summaryText()).toBe('');
+      expect(nameFilter()).toHaveValue('');
+      expect(clearFiltersButton()).not.toBeInTheDocument();
+      expect(server.searchRequests()).toHaveLength(1);
+    });
+
+    it('a találat nélküli állapotból is visszaállít', async () => {
+      const user = await startSearchApp();
+      await user.type(nameFilter(), 'nincs-ilyen');
+      await advance(300);
+      await screen.findByText('Nincs a keresésnek megfelelő bicikli.');
+
+      const button = clearFiltersButton();
+      if (!button) throw new Error('A Szűrők törlése gomb hiányzik');
+      await user.click(button);
+      await advance(300);
+
+      await waitFor(() => expect(listedBikes()).toHaveLength(5));
+      expect(screen.queryByText('Nincs a keresésnek megfelelő bicikli.')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('frissítés közben és műveletek után', () => {
+    it('a háttérfrissítés közben megmarad a keresés, és az új találatok megjelennek', async () => {
+      const user = await startSearchApp();
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+      const before = server.searchRequests().length;
+
+      server.state.bikes.push(
+        { id: 'b6', name: 'City-06', type: 'city', status: 'available' },
+        { id: 'b7', name: 'Hegyi-07', type: 'mountain', status: 'available' },
+      );
+      await advance(5_000);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04', 'City-06']));
+      expect(summaryText()).toBe('3 találat');
+      expect(nameFilter()).toHaveValue('city');
+      expect(server.searchRequests().length).toBeGreaterThan(before);
+      for (const request of server.searchRequests()) expect(request.query).toEqual({ q: 'city' });
+    });
+
+    it('a bérlések bicikli-nevei szűrt lista mellett is látszanak', async () => {
+      const user = await startSearchApp();
+
+      await user.selectOptions(typeFilter(), 'city');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+
+      const rentalsSection = screen.getByRole('heading', { name: 'Saját bérléseim' }).closest('section');
+      if (!rentalsSection) throw new Error('Hiányzik a bérléseket tartalmazó szakasz');
+      const finished = within(rentalsSection).getByRole('row', { name: /Hegyi-02.*600 Ft/ });
+      expect(within(finished).queryByText('b2')).not.toBeInTheDocument();
+      expect(listedBikes()).not.toContain('Hegyi-02');
+    });
+
+    it('a bérlés után a találatok frissülnek, és a szűrő megmarad', async () => {
+      const user = await startSearchApp();
+      await user.selectOptions(statusFilter(), 'available');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'Hegyi-05']));
+
+      await user.click(screen.getByRole('button', { name: 'City-01 bérlése' }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent('City-01 kibérelve.');
+      await waitFor(() => expect(listedBikes()).toEqual(['Hegyi-05']));
+      expect(summaryText()).toBe('1 találat');
+      expect(statusFilter()).toHaveValue('available');
+      expect(server.searchRequests().at(-1)?.query).toEqual({ status: 'available' });
+      expect(await screen.findByRole('button', { name: 'City-01 visszavétele' })).toBeEnabled();
+    });
+
+    it('a státuszváltás után a találatok frissülnek', async () => {
+      const user = await startSearchApp();
+      await switchAndWait(user, 'anna');
+      await user.selectOptions(statusFilter(), 'maintenance');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-04', 'Hegyi-02']));
+
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Hegyi-02 státusza' }), 'available');
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Hegyi-02 állapota módosítva.');
+      await waitFor(() => expect(listedBikes()).toEqual(['City-04']));
+      expect(summaryText()).toBe('1 találat');
+    });
+
+    it('az új bicikli felvétele után a keresés találatai frissülnek', async () => {
+      const user = await startSearchApp();
+      await switchAndWait(user, 'anna');
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+
+      await user.type(screen.getByLabelText('Név / azonosító'), 'City-09');
+      await user.click(screen.getByRole('button', { name: 'Hozzáadás' }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent('City-09 felvéve.');
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04', 'City-09']));
+      expect(summaryText()).toBe('3 találat');
+    });
+  });
+
+  describe('felhasználóváltás', () => {
+    it('törli a szűrőket, és az új felhasználónál a teljes lista látszik keresés nélkül', async () => {
+      const user = await startSearchApp();
+      await user.type(nameFilter(), 'city');
+      await user.selectOptions(statusFilter(), 'available');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01']));
+
+      await switchAndWait(user, 'anna');
+      await advance(1_000);
+
+      expect(nameFilter()).toHaveValue('');
+      expect(typeFilter()).toHaveValue('');
+      expect(statusFilter()).toHaveValue('');
+      expect(clearFiltersButton()).not.toBeInTheDocument();
+      expect(summaryText()).toBe('');
+      expect([...listedBikes()].sort()).toEqual(ALL_BIKES);
+      expect(requestsAfterLastLogin().filter((r) => r.path === '/api/bikes/search')).toEqual([]);
+    });
+
+    it('a váltás közben beírt, még nem alkalmazott szöveg sem indít keresést az új felhasználónál', async () => {
+      const user = await startSearchApp();
+      await user.type(nameFilter(), 'city');
+      const searchesBefore = server.searchRequests().length;
+
+      await switchAndWait(user, 'eszter');
+      await advance(1_000);
+
+      expect(nameFilter()).toHaveValue('');
+      expect(server.searchRequests()).toHaveLength(searchesBefore);
+    });
+  });
+
+  describe('elavult válaszok és hibák', () => {
+    it('a gyors módosításnál a régebbi, később érkező válasz nem írja felül az újabbat', async () => {
+      const user = await startSearchApp();
+      const releaseOld = server.holdNext('GET', '/api/bikes/search');
+
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+      await waitFor(() => expect(server.searchRequests()).toHaveLength(1));
+
+      await user.clear(nameFilter());
+      await user.type(nameFilter(), 'hegyi');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['Hegyi-02', 'Hegyi-05']));
+      expect(summaryText()).toBe('2 találat');
+      expect(server.searchRequests().map((r) => r.query)).toEqual([{ q: 'city' }, { q: 'hegyi' }]);
+
+      await act(async () => {
+        releaseOld();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(listedBikes()).toEqual(['Hegyi-02', 'Hegyi-05']);
+      expect(summaryText()).toBe('2 találat');
+      expect(nameFilter()).toHaveValue('hegyi');
+    });
+
+    it('a szűrő törlése után a korábbi, később érkező keresési válasz nem állítja vissza a szűrt listát', async () => {
+      const user = await startSearchApp();
+      const releaseOld = server.holdNext('GET', '/api/bikes/search');
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+      await waitFor(() => expect(server.searchRequests()).toHaveLength(1));
+
+      const button = clearFiltersButton();
+      if (!button) throw new Error('A Szűrők törlése gomb hiányzik');
+      await user.click(button);
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toHaveLength(5));
+
+      await act(async () => {
+        releaseOld();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect([...listedBikes()].sort()).toEqual(ALL_BIKES);
+      expect(summaryText()).toBe('');
+    });
+
+    it('a keresési hiba hibasávot mutat, a korábbi adatok megmaradnak, és a helyreállás után eltűnik', async () => {
+      const user = await startSearchApp();
+      server.override('GET', '/api/bikes/search', () => new Response('', { status: 503 }));
+
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'A szerverrel nem sikerült frissíteni az adatokat: A szerver jelenleg nem érhető el.',
+      );
+      expect([...listedBikes()].sort()).toEqual(ALL_BIKES);
+      expect(nameFilter()).toHaveValue('city');
+
+      server.clearOverride('GET', '/api/bikes/search');
+      await advance(5_000);
+
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(summaryText()).toBe('2 találat');
+    });
+
+    it('a keresés hálózati hibájánál a szerver nem érhető el üzenetet mutatja', async () => {
+      const user = await startSearchApp();
+      server.failWithNetworkError('GET', '/api/bikes/search');
+
+      await user.selectOptions(typeFilter(), 'city');
+      await advance(300);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('A szerver nem érhető el.');
+      expect([...listedBikes()].sort()).toEqual(ALL_BIKES);
+    });
+
+    it('a keresésre kapott 401 után csendben újra bejelentkezik, és a szűrő megmarad', async () => {
+      const user = await startSearchApp();
+      await user.type(nameFilter(), 'city');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+
+      server.expireSessions();
+      await advance(5_000);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(SESSION_RENEWED);
+      await waitFor(() => expect(server.tokensOf('peter')).toHaveLength(2));
+      await waitFor(() => expect(listedBikes()).toEqual(['City-01', 'City-04']));
+      expect(nameFilter()).toHaveValue('city');
+      expect(server.searchRequests().at(-1)?.authorization).toBe(`Bearer ${server.tokenFor('peter')}`);
+    });
+
+    it('a szűrő módosítása előtt indított művelet utáni frissítés nem írja felül a közben módosított szűrő találatait', async () => {
+      const user = await startSearchApp();
+      const releaseSlow = server.holdNext('POST', '/api/rentals');
+      await user.click(screen.getByRole('button', { name: 'City-01 bérlése' }));
+      await waitFor(() => expect(server.countRequests('POST', '/api/rentals')).toBe(1));
+
+      await user.selectOptions(typeFilter(), 'mountain');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['Hegyi-02', 'Hegyi-05']));
+
+      await act(async () => {
+        releaseSlow();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await screen.findByRole('status');
+      await advance(100);
+
+      expect(listedBikes()).toEqual(['Hegyi-02', 'Hegyi-05']);
+      expect(summaryText()).toBe('2 találat');
+    });
+
+    it('a szűrő törlése előtt indított művelet utáni frissítés a teljes listát mutatja, nem a régi találatokat', async () => {
+      const user = await startSearchApp();
+      await user.selectOptions(typeFilter(), 'mountain');
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toEqual(['Hegyi-02', 'Hegyi-05']));
+      const releaseSlow = server.holdNext('POST', '/api/rentals');
+      await user.click(screen.getByRole('button', { name: 'Hegyi-05 bérlése' }));
+      await waitFor(() => expect(server.countRequests('POST', '/api/rentals')).toBe(1));
+
+      const button = clearFiltersButton();
+      if (!button) throw new Error('A Szűrők törlése gomb hiányzik');
+      await user.click(button);
+      await advance(300);
+      await waitFor(() => expect(listedBikes()).toHaveLength(5));
+
+      await act(async () => {
+        releaseSlow();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await screen.findByRole('status');
+      await advance(100);
+
+      expect(screen.getByRole('status')).toHaveTextContent('Hegyi-05 kibérelve.');
+      expect([...listedBikes()].sort()).toEqual(ALL_BIKES);
+      expect(summaryText()).toBe('');
+      expect(nameFilter()).toHaveValue('');
+      expect(typeFilter()).toHaveValue('');
+      expect(server.searchRequests()).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Hegyi-05 visszavétele' })).toBeEnabled();
+    });
   });
 });

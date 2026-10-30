@@ -41,7 +41,7 @@ class OpenApiContractTest {
     @Test
     void implementedApiEndpointsMatchTheSpecification() throws IOException {
         assertThat(implementedOperations()).isEqualTo(documentedOperations().keySet());
-        assertThat(documentedOperations()).hasSize(9);
+        assertThat(documentedOperations()).hasSize(10);
     }
 
     @Test
