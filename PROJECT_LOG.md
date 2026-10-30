@@ -71,3 +71,21 @@ A beszélgetések összefoglalóját időrendben ide naplózzuk.
 - Hibás esetek (`PersistenceFailureTest`): (1) második aktív bérlés ugyanarra a biciklire → a DB `uq_rental_one_active_per_bike` constraintje
   utasítja el flush-nál (SQLSTATE 23505), a végállapotban 1 sor; (2) a `RentBikeService` a bicikli státuszát flush-olja, a bérlés beszúrása
   constraint miatt hibázik → teljes rollback (bicikli AVAILABLE/version 0, nincs új bérlés). Tranzakció nélküli mutánson a rollback-teszt elbukik.
+
+### OpenAPI szerződés, szerződés-első backend, frontend bekötés
+
+- Szerződés: `api/openapi.yaml` (OpenAPI 3.0.3, 8 művelet: users, tariffs, bikes GET/POST, bikes/{id}/status PATCH, rentals GET/POST, rentals/{id}/return POST;
+  `ApiError` {code,message}; `X-User-Id` fejléc a felhasználóváltáshoz, hitelesítés nincs).
+- Backend: az `openapi-generator-maven-plugin` (spring, interfaceOnly) generálja az `*Api` interfészeket és a `*Dto` modelleket (`target/generated-sources`);
+  a controllerek ezeket implementálják, `ApiMapper` képez a domain ↔ DTO között. `OpenApiContractTest`: a futó alkalmazás pontosan a spec végpontjait szolgálja ki.
+  43 backend teszt zöld.
+- HTTP ellenőrzés PostgreSQL 16 ellen (üres adatbázis, Flyway V1-V3, `--spring.profiles.active=postgres`): teljes folyamat curl-lel (felvétel, bérlés,
+  ütközések 409, jogosultságok 403, visszavétel díjjal, hibakódok), a sorok a táblákban egyeztek a válaszokkal.
+- Frontend: `npm run gen:api` az `api/openapi.yaml`-ból generál TypeScript típusokat (`src/api/schema.d.ts`); `src/api/client.ts` a típusos kliens,
+  a memóriabeli logika (store/data) megszűnt. A felület a Vite proxyn át (`/api` → :8080) a backendet használja, 5 mp-enként frissít, kezeli a betöltés/hiba/üres állapotot.
+- Böngészős ellenőrzés (Playwright, valódi PostgreSQL-lel): bérlés, ütköző név (409 üzenet), státuszváltás, felhasználóváltás és szerepkörök, visszavétel
+  (E-bike-01: 500 + 1 megkezdett perc × 35 = 535 Ft), majd az adatbázis sorai egyeztek; backend leállításakor hibasáv, visszatéréskor magától helyreállt.
+- Futtatás: backend `java -jar backend\target\kerekpar-berles-backend-0.1.0.jar --spring.profiles.active=postgres` (KEREKPAR_DB_URL/USER/PASSWORD),
+  alapértelmezetten (profil nélkül) in-memory; frontend `cd frontend; npm run dev`.
+- Nyitott (a review-ból): a `nextId()` ütközhet kézzel beszúrt azonosítóval (a `save()` ilyenkor felülír), N+1 a bérléslistában,
+  a domain UTF-16 hossza vs DB kódpont-hossz (emoji név 500), a névegyediség a DB lokalizációjától függ.
