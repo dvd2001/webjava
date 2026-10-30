@@ -1,17 +1,24 @@
 openapi: 3.0.3
 info:
   title: Kerékpár állomás kölcsönzés API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Egy állomáshoz kötött kerékpár-kölcsönzés REST API-ja.
 
-    A hitelesítés nincs megvalósítva: a kérést indító felhasználót az `X-User-Id` fejléc azonosítja
-    (felhasználóváltás), a jogosultságot a szerepkör alapján ellenőrzi a szerver.
+    **Hitelesítés:** a `POST /api/auth/login` felhasználónévvel és jelszóval rövid életű, aláírt JWT-t ad.
+    Minden más végpont `Authorization: Bearer <token>` fejlécet vár. A műveletet végző felhasználót kizárólag a
+    token azonosítja (a kérésből nem adható meg), a szerepkört a szerver ellenőrzi.
+
+    **Szerepkörök:** `manager` (állomásvezető) és `renter` (bérlő).
     Az időpontok epoch ezredmásodpercek (UTC), a pénzösszegek egész forintban értendők.
 servers:
   - url: http://localhost:8080
     description: Helyi fejlesztői szerver
+security:
+  - bearerAuth: []
 tags:
+  - name: Auth
+    description: Bejelentkezés
   - name: Reference
     description: Felhasználók és tarifák
   - name: Bikes
@@ -20,11 +27,40 @@ tags:
     description: Bérlések
 
 paths:
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Bejelentkezés felhasználónévvel és jelszóval
+      description: |
+        Sikeres hitelesítés után Bearer tokent ad. A hibás felhasználónévre és a hibás jelszóra ugyanaz a válasz érkezik.
+        Ismételt sikertelen próbálkozás után a felhasználónév átmenetileg zárolódik (429).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Sikeres bejelentkezés
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
   /api/users:
     get:
       tags: [Reference]
       operationId: listUsers
-      summary: Az elérhető felhasználók listája
+      summary: A felhasználók listája (csak állomásvezető)
       responses:
         '200':
           description: Felhasználók
@@ -34,6 +70,10 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /api/tariffs:
     get:
@@ -49,6 +89,8 @@ paths:
                 type: object
                 additionalProperties:
                   $ref: '#/components/schemas/Tariff'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/bikes:
     get:
@@ -64,12 +106,12 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Bike'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
       tags: [Bikes]
       operationId: createBike
       summary: Új bicikli felvétele (csak állomásvezető)
-      parameters:
-        - $ref: '#/components/parameters/UserId'
       requestBody:
         required: true
         content:
@@ -90,10 +132,10 @@ paths:
                 $ref: '#/components/schemas/Bike'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -107,7 +149,6 @@ paths:
         Használatban lévő bicikli státusza csak visszavétellel változik, az `in_use` csak bérléssel áll elő.
       parameters:
         - $ref: '#/components/parameters/BikeId'
-        - $ref: '#/components/parameters/UserId'
       requestBody:
         required: true
         content:
@@ -123,6 +164,8 @@ paths:
                 $ref: '#/components/schemas/Bike'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -136,7 +179,6 @@ paths:
       operationId: listRentals
       summary: Bérlések (állomásvezetőnek mind, bérlőnek csak a sajátjai)
       parameters:
-        - $ref: '#/components/parameters/UserId'
         - name: status
           in: query
           required: false
@@ -156,15 +198,13 @@ paths:
                   $ref: '#/components/schemas/Rental'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
       tags: [Rentals]
       operationId: createRental
       summary: Bicikli bérlése (csak bérlő)
       description: Csak `available` státuszú bicikli bérelhető, a bérelt bicikli nem adható ki újra.
-      parameters:
-        - $ref: '#/components/parameters/UserId'
       requestBody:
         required: true
         content:
@@ -185,6 +225,8 @@ paths:
                 $ref: '#/components/schemas/Rental'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -202,7 +244,6 @@ paths:
         A bérlő csak a saját bérlését zárhatja le, az állomásvezető bármelyiket.
       parameters:
         - $ref: '#/components/parameters/RentalId'
-        - $ref: '#/components/parameters/UserId'
       responses:
         '200':
           description: A lezárt bérlés a végső díjjal
@@ -210,8 +251,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Rental'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -220,15 +261,14 @@ paths:
           $ref: '#/components/responses/Conflict'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: A `POST /api/auth/login` által kiadott, rövid életű token
+
   parameters:
-    UserId:
-      name: X-User-Id
-      in: header
-      required: true
-      description: A kérést indító felhasználó azonosítója (nem hitelesítés)
-      schema:
-        type: string
-        example: u1
     BikeId:
       name: id
       in: path
@@ -246,7 +286,13 @@ components:
 
   responses:
     BadRequest:
-      description: Érvénytelen kérés (hibás adat, hiányzó fejléc, ismeretlen szűrő)
+      description: Érvénytelen kérés (hibás vagy hiányzó adat, ismeretlen szűrő)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Unauthorized:
+      description: Hiányzó, érvénytelen vagy lejárt token, illetve hibás bejelentkezési adat
       content:
         application/json:
           schema:
@@ -258,13 +304,19 @@ components:
           schema:
             $ref: '#/components/schemas/ApiError'
     NotFound:
-      description: Ismeretlen felhasználó, bicikli vagy bérlés
+      description: Ismeretlen bicikli vagy bérlés
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiError'
     Conflict:
       description: Üzleti szabály vagy egyidejű módosítás miatt nem végrehajtható
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    TooManyRequests:
+      description: Túl sok sikertelen bejelentkezési kísérlet, később újra lehet próbálni
       content:
         application/json:
           schema:
@@ -280,6 +332,35 @@ components:
     UserRole:
       type: string
       enum: [manager, renter]
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: peter
+        password:
+          type: string
+          format: password
+          writeOnly: true
+
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType, expiresAt, user]
+      properties:
+        accessToken:
+          type: string
+          description: Aláírt JWT; a `sub` claim a felhasználó azonosítója
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresAt:
+          type: integer
+          format: int64
+          description: A token lejárata (epoch ezredmásodperc)
+        user:
+          $ref: '#/components/schemas/User'
 
     User:
       type: object

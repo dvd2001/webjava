@@ -2,8 +2,7 @@ package hu.kerekpar.application.usecase;
 
 import hu.kerekpar.application.port.out.UserRepository;
 import hu.kerekpar.domain.exception.ForbiddenException;
-import hu.kerekpar.domain.exception.InvalidInputException;
-import hu.kerekpar.domain.exception.NotFoundException;
+import hu.kerekpar.domain.exception.UnauthenticatedException;
 import hu.kerekpar.domain.model.User;
 
 /** A kérést indító felhasználó feloldása és jogosultság-ellenőrzés (nem hitelesítés). */
@@ -17,10 +16,11 @@ class ActorGuard {
 
     User resolve(String actorId) {
         if (actorId == null || actorId.isBlank()) {
-            throw new InvalidInputException("ACTOR_REQUIRED", "A felhasználó azonosítója kötelező.");
+            throw new UnauthenticatedException("ACTOR_REQUIRED", "A művelethez bejelentkezés szükséges.");
         }
         return users.findById(actorId)
-                .orElseThrow(() -> new NotFoundException("USER_NOT_FOUND", "A felhasználó nem található."));
+                .orElseThrow(() -> new UnauthenticatedException("UNKNOWN_ACTOR",
+                        "A bejelentkezett felhasználó már nem létezik."));
     }
 
     User resolveManager(String actorId, String deniedMessage) {

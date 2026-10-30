@@ -3,6 +3,7 @@ package hu.kerekpar.adapter.in.web;
 import hu.kerekpar.adapter.in.web.api.RentalsApi;
 import hu.kerekpar.adapter.in.web.api.model.CreateRentalRequestDto;
 import hu.kerekpar.adapter.in.web.api.model.RentalDto;
+import hu.kerekpar.adapter.in.web.security.CurrentActor;
 import hu.kerekpar.application.port.in.ListRentalsUseCase;
 import hu.kerekpar.application.port.in.RentBikeUseCase;
 import hu.kerekpar.application.port.in.ReturnBikeUseCase;
@@ -19,29 +20,32 @@ public class RentalController implements RentalsApi {
     private final ListRentalsUseCase listRentals;
     private final RentBikeUseCase rentBike;
     private final ReturnBikeUseCase returnBike;
+    private final CurrentActor actor;
 
-    public RentalController(ListRentalsUseCase listRentals, RentBikeUseCase rentBike, ReturnBikeUseCase returnBike) {
+    public RentalController(ListRentalsUseCase listRentals, RentBikeUseCase rentBike, ReturnBikeUseCase returnBike,
+                            CurrentActor actor) {
         this.listRentals = listRentals;
         this.rentBike = rentBike;
         this.returnBike = returnBike;
+        this.actor = actor;
     }
 
     @Override
-    public ResponseEntity<List<RentalDto>> listRentals(String actorId, String status) {
-        List<RentalDto> rentals = listRentals.execute(new ListRentalsUseCase.Query(actorId, parseFilter(status)))
+    public ResponseEntity<List<RentalDto>> listRentals(String status) {
+        List<RentalDto> rentals = listRentals.execute(new ListRentalsUseCase.Query(actor.id(), parseFilter(status)))
                 .stream().map(ApiMapper::toDto).toList();
         return ResponseEntity.ok(rentals);
     }
 
     @Override
-    public ResponseEntity<RentalDto> createRental(String actorId, CreateRentalRequestDto request) {
-        RentalDto created = ApiMapper.toDto(rentBike.execute(new RentBikeUseCase.Command(actorId, request.getBikeId())));
+    public ResponseEntity<RentalDto> createRental(CreateRentalRequestDto request) {
+        RentalDto created = ApiMapper.toDto(rentBike.execute(new RentBikeUseCase.Command(actor.id(), request.getBikeId())));
         return ResponseEntity.created(URI.create("/api/rentals/" + created.getId())).body(created);
     }
 
     @Override
-    public ResponseEntity<RentalDto> returnRental(String id, String actorId) {
-        return ResponseEntity.ok(ApiMapper.toDto(returnBike.execute(new ReturnBikeUseCase.Command(actorId, id))));
+    public ResponseEntity<RentalDto> returnRental(String id) {
+        return ResponseEntity.ok(ApiMapper.toDto(returnBike.execute(new ReturnBikeUseCase.Command(actor.id(), id))));
     }
 
     private static ListRentalsUseCase.Filter parseFilter(String value) {

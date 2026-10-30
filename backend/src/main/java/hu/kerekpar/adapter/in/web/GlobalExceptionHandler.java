@@ -6,6 +6,8 @@ import hu.kerekpar.domain.exception.DomainException;
 import hu.kerekpar.domain.exception.ForbiddenException;
 import hu.kerekpar.domain.exception.InvalidInputException;
 import hu.kerekpar.domain.exception.NotFoundException;
+import hu.kerekpar.domain.exception.TooManyRequestsException;
+import hu.kerekpar.domain.exception.UnauthenticatedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -13,8 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -30,7 +32,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ApiErrorDto> handleDomain(DomainException e) {
         HttpStatus status = statusOf(e);
         log.warn("Üzleti hiba: {} {} - {}", status.value(), e.code(), e.getMessage());
-        return ResponseEntity.status(status).body(new ApiErrorDto(e.code(), e.getMessage()));
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(status);
+        if (status == HttpStatus.UNAUTHORIZED) {
+            response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        return response.body(new ApiErrorDto(e.code(), e.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)
@@ -67,6 +73,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private static HttpStatus statusOf(DomainException e) {
+        if (e instanceof UnauthenticatedException) {
+            return HttpStatus.UNAUTHORIZED;
+        }
         if (e instanceof NotFoundException) {
             return HttpStatus.NOT_FOUND;
         }
@@ -75,6 +84,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         }
         if (e instanceof ConflictException) {
             return HttpStatus.CONFLICT;
+        }
+        if (e instanceof TooManyRequestsException) {
+            return HttpStatus.TOO_MANY_REQUESTS;
         }
         if (e instanceof InvalidInputException) {
             return HttpStatus.BAD_REQUEST;

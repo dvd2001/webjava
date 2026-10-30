@@ -80,7 +80,7 @@ class RentalRoundTripTest {
     @Test
     void contextStartedWithMigratedSchemaAndSeededRenter() {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-                .isEqualTo(3);
+                .as("4 verziózott migráció + az ismételhető fejlesztői jelszó-migráció").isEqualTo(5);
         assertThat(users.findById("u2")).contains(new User("u2", "Nagy Péter", UserRole.RENTER));
     }
 

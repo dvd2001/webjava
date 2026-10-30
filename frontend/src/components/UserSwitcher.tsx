@@ -1,19 +1,19 @@
-import type { User } from '../types';
+import type { DemoUser } from '../demoUsers';
 import { ROLE_LABELS } from '../labels';
 
 interface Props {
-  users: User[];
-  currentUserId: string;
-  onChange: (id: string) => void;
+  users: DemoUser[];
+  currentUsername: string;
+  onChange: (username: string) => void;
 }
 
-export function UserSwitcher({ users, currentUserId, onChange }: Props) {
+export function UserSwitcher({ users, currentUsername, onChange }: Props) {
   return (
     <label className="user-switcher">
       Aktív felhasználó:
-      <select value={currentUserId} onChange={(e) => onChange(e.target.value)}>
+      <select value={currentUsername} onChange={(e) => onChange(e.target.value)}>
         {users.map((u) => (
-          <option key={u.id} value={u.id}>
+          <option key={u.username} value={u.username}>
             {u.name} ({ROLE_LABELS[u.role]})
           </option>
         ))}

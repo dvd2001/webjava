@@ -9,6 +9,7 @@ export type User = Schemas['User'];
 export type UserRole = Schemas['UserRole'];
 export type Rental = Schemas['Rental'];
 export type Tariff = Schemas['Tariff'];
+export type LoginResponse = Schemas['LoginResponse'];
 
 /** A tarifák biciklitípus szerint kulcsolva (a szerződés additionalProperties típusa). */
 export type Tariffs = Record<string, Tariff>;

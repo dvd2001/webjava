@@ -35,4 +35,20 @@ class CleanArchitectureTest {
             .that().resideOutsideOfPackage("..adapter.out.persistence..")
             .should().dependOnClassesThat().resideInAnyPackage(
                     "jakarta.persistence..", "org.springframework.data..", "org.hibernate..");
+
+    @ArchTest
+    static final ArchRule springSecurityStaysInWebSecurityAndConfig = noClasses()
+            .that().resideOutsideOfPackages("..adapter.in.web..", "..adapter.out.security..", "..config..")
+            .should().dependOnClassesThat().resideInAnyPackage("org.springframework.security..", "com.nimbusds..");
+
+    @ArchTest
+    static final ArchRule useCasesNeverReadTheRequestSecurityContext = noClasses()
+            .that().resideInAPackage("..application..")
+            .should().dependOnClassesThat().resideInAnyPackage("org.springframework.security..", "jakarta.servlet..");
+
+    @ArchTest
+    static final ArchRule controllersGetTheActorOnlyFromCurrentActor = noClasses()
+            .that().haveSimpleNameEndingWith("Controller")
+            .should().dependOnClassesThat().haveFullyQualifiedName(
+                    "org.springframework.security.core.context.SecurityContextHolder");
 }

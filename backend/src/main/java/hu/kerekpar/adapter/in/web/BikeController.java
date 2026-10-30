@@ -4,6 +4,7 @@ import hu.kerekpar.adapter.in.web.api.BikesApi;
 import hu.kerekpar.adapter.in.web.api.model.BikeDto;
 import hu.kerekpar.adapter.in.web.api.model.ChangeBikeStatusRequestDto;
 import hu.kerekpar.adapter.in.web.api.model.CreateBikeRequestDto;
+import hu.kerekpar.adapter.in.web.security.CurrentActor;
 import hu.kerekpar.application.port.in.AddBikeUseCase;
 import hu.kerekpar.application.port.in.ChangeBikeStatusUseCase;
 import hu.kerekpar.application.port.in.ListBikesUseCase;
@@ -18,12 +19,14 @@ public class BikeController implements BikesApi {
     private final ListBikesUseCase listBikes;
     private final AddBikeUseCase addBike;
     private final ChangeBikeStatusUseCase changeBikeStatus;
+    private final CurrentActor actor;
 
     public BikeController(ListBikesUseCase listBikes, AddBikeUseCase addBike,
-                          ChangeBikeStatusUseCase changeBikeStatus) {
+                          ChangeBikeStatusUseCase changeBikeStatus, CurrentActor actor) {
         this.listBikes = listBikes;
         this.addBike = addBike;
         this.changeBikeStatus = changeBikeStatus;
+        this.actor = actor;
     }
 
     @Override
@@ -32,15 +35,15 @@ public class BikeController implements BikesApi {
     }
 
     @Override
-    public ResponseEntity<BikeDto> createBike(String actorId, CreateBikeRequestDto request) {
+    public ResponseEntity<BikeDto> createBike(CreateBikeRequestDto request) {
         BikeDto created = ApiMapper.toDto(addBike.execute(new AddBikeUseCase.Command(
-                actorId, request.getName(), ApiMapper.toDomain(request.getType()))));
+                actor.id(), request.getName(), ApiMapper.toDomain(request.getType()))));
         return ResponseEntity.created(URI.create("/api/bikes/" + created.getId())).body(created);
     }
 
     @Override
-    public ResponseEntity<BikeDto> changeBikeStatus(String id, String actorId, ChangeBikeStatusRequestDto request) {
+    public ResponseEntity<BikeDto> changeBikeStatus(String id, ChangeBikeStatusRequestDto request) {
         return ResponseEntity.ok(ApiMapper.toDto(changeBikeStatus.execute(new ChangeBikeStatusUseCase.Command(
-                actorId, id, ApiMapper.toDomain(request.getStatus())))));
+                actor.id(), id, ApiMapper.toDomain(request.getStatus())))));
     }
 }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import hu.kerekpar.application.port.out.BikeRepository;
+import hu.kerekpar.application.port.out.CredentialsRepository;
 import hu.kerekpar.application.port.out.RentalRepository;
 import hu.kerekpar.application.port.out.TariffRepository;
 import hu.kerekpar.application.port.out.UnitOfWork;
@@ -50,6 +51,8 @@ class PostgresAdapterTest {
     @Autowired
     private UserRepository users;
     @Autowired
+    private CredentialsRepository credentials;
+    @Autowired
     private TariffRepository tariffs;
     @Autowired
     private UnitOfWork unitOfWork;
@@ -64,6 +67,17 @@ class PostgresAdapterTest {
 
     private Bike newBike(String name, BikeType type) {
         return bikes.save(Bike.register(bikes.nextId(), name, type));
+    }
+
+    @Test
+    void credentialsComeFromTheDatabaseByNormalizedUsername() {
+        var anna = credentials.findByUsername("anna").orElseThrow();
+
+        assertThat(anna.user()).isEqualTo(new User("u1", "Kovács Anna", UserRole.MANAGER));
+        assertThat(anna.passwordHash()).startsWith("$2");
+        assertThat(credentials.findByUsername("peter").orElseThrow().user().id()).isEqualTo("u2");
+        assertThat(credentials.findByUsername("senki")).isEmpty();
+        assertThat(credentials.findByUsername("Anna")).as("a nagybetűs név nem normalizált, nem találja").isEmpty();
     }
 
     @Test

@@ -1,6 +1,7 @@
 package hu.kerekpar.adapter.out.persistence;
 
 import hu.kerekpar.application.port.out.BikeRepository;
+import hu.kerekpar.application.port.out.CredentialsRepository;
 import hu.kerekpar.application.port.out.RentalRepository;
 import hu.kerekpar.application.port.out.TariffRepository;
 import hu.kerekpar.application.port.out.UnitOfWork;
@@ -35,6 +36,11 @@ class PostgresPersistenceConfig {
     @Bean
     UserRepository userRepository(SpringDataUserRepository jpa) {
         return new PostgresUserRepository(jpa);
+    }
+
+    @Bean
+    CredentialsRepository credentialsRepository(SpringDataUserRepository jpa) {
+        return new PostgresCredentialsRepository(jpa);
     }
 
     @Bean

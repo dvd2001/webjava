@@ -4,6 +4,27 @@
  */
 
 export interface paths {
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bejelentkezés felhasználónévvel és jelszóval
+         * @description Sikeres hitelesítés után Bearer tokent ad. A hibás felhasználónévre és a hibás jelszóra ugyanaz a válasz érkezik.
+         *     Ismételt sikertelen próbálkozás után a felhasználónév átmenetileg zárolódik (429).
+         */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users": {
         parameters: {
             query?: never;
@@ -11,7 +32,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Az elérhető felhasználók listája */
+        /** A felhasználók listája (csak állomásvezető) */
         get: operations["listUsers"];
         put?: never;
         post?: never;
@@ -129,6 +150,24 @@ export interface components {
         BikeStatus: "available" | "in_use" | "maintenance";
         /** @enum {string} */
         UserRole: "manager" | "renter";
+        LoginRequest: {
+            /** @example peter */
+            username: string;
+            /** Format: password */
+            password: string;
+        };
+        LoginResponse: {
+            /** @description Aláírt JWT; a `sub` claim a felhasználó azonosítója */
+            accessToken: string;
+            /** @enum {string} */
+            tokenType: "Bearer";
+            /**
+             * Format: int64
+             * @description A token lejárata (epoch ezredmásodperc)
+             */
+            expiresAt: number;
+            user: components["schemas"]["User"];
+        };
         User: {
             /** @example u2 */
             id: string;
@@ -220,8 +259,17 @@ export interface components {
         };
     };
     responses: {
-        /** @description Érvénytelen kérés (hibás adat, hiányzó fejléc, ismeretlen szűrő) */
+        /** @description Érvénytelen kérés (hibás vagy hiányzó adat, ismeretlen szűrő) */
         BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description Hiányzó, érvénytelen vagy lejárt token, illetve hibás bejelentkezési adat */
+        Unauthorized: {
             headers: {
                 [name: string]: unknown;
             };
@@ -238,7 +286,7 @@ export interface components {
                 "application/json": components["schemas"]["ApiError"];
             };
         };
-        /** @description Ismeretlen felhasználó, bicikli vagy bérlés */
+        /** @description Ismeretlen bicikli vagy bérlés */
         NotFound: {
             headers: {
                 [name: string]: unknown;
@@ -256,10 +304,17 @@ export interface components {
                 "application/json": components["schemas"]["ApiError"];
             };
         };
+        /** @description Túl sok sikertelen bejelentkezési kísérlet, később újra lehet próbálni */
+        TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
     };
     parameters: {
-        /** @description A kérést indító felhasználó azonosítója (nem hitelesítés) */
-        UserId: string;
         BikeId: string;
         RentalId: string;
     };
@@ -269,6 +324,33 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Sikeres bejelentkezés */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     listUsers: {
         parameters: {
             query?: never;
@@ -287,6 +369,8 @@ export interface operations {
                     "application/json": components["schemas"]["User"][];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listTariffs: {
@@ -309,6 +393,7 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listBikes: {
@@ -329,15 +414,13 @@ export interface operations {
                     "application/json": components["schemas"]["Bike"][];
                 };
             };
+            401: components["responses"]["Unauthorized"];
         };
     };
     createBike: {
         parameters: {
             query?: never;
-            header: {
-                /** @description A kérést indító felhasználó azonosítója (nem hitelesítés) */
-                "X-User-Id": components["parameters"]["UserId"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -359,18 +442,15 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
     };
     changeBikeStatus: {
         parameters: {
             query?: never;
-            header: {
-                /** @description A kérést indító felhasználó azonosítója (nem hitelesítés) */
-                "X-User-Id": components["parameters"]["UserId"];
-            };
+            header?: never;
             path: {
                 id: components["parameters"]["BikeId"];
             };
@@ -392,6 +472,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
@@ -403,10 +484,7 @@ export interface operations {
                 /** @description Szűrés a bérlés állapota szerint */
                 status?: "all" | "active" | "finished";
             };
-            header: {
-                /** @description A kérést indító felhasználó azonosítója (nem hitelesítés) */
-                "X-User-Id": components["parameters"]["UserId"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -422,16 +500,13 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
-            404: components["responses"]["NotFound"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     createRental: {
         parameters: {
             query?: never;
-            header: {
-                /** @description A kérést indító felhasználó azonosítója (nem hitelesítés) */
-                "X-User-Id": components["parameters"]["UserId"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -453,6 +528,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
@@ -461,10 +537,7 @@ export interface operations {
     returnRental: {
         parameters: {
             query?: never;
-            header: {
-                /** @description A kérést indító felhasználó azonosítója (nem hitelesítés) */
-                "X-User-Id": components["parameters"]["UserId"];
-            };
+            header?: never;
             path: {
                 id: components["parameters"]["RentalId"];
             };
@@ -481,7 +554,7 @@ export interface operations {
                     "application/json": components["schemas"]["Rental"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];

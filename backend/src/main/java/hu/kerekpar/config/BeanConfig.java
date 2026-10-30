@@ -9,12 +9,16 @@ import hu.kerekpar.application.port.in.ListBikesUseCase;
 import hu.kerekpar.application.port.in.ListRentalsUseCase;
 import hu.kerekpar.application.port.in.ListTariffsUseCase;
 import hu.kerekpar.application.port.in.ListUsersUseCase;
+import hu.kerekpar.application.port.in.LoginUseCase;
 import hu.kerekpar.application.port.in.RentBikeUseCase;
 import hu.kerekpar.application.port.in.ReturnBikeUseCase;
 import hu.kerekpar.application.port.out.BikeRepository;
 import hu.kerekpar.application.port.out.ClockPort;
+import hu.kerekpar.application.port.out.CredentialsRepository;
+import hu.kerekpar.application.port.out.PasswordHasher;
 import hu.kerekpar.application.port.out.RentalRepository;
 import hu.kerekpar.application.port.out.TariffRepository;
+import hu.kerekpar.application.port.out.TokenIssuer;
 import hu.kerekpar.application.port.out.UnitOfWork;
 import hu.kerekpar.application.port.out.UserRepository;
 import hu.kerekpar.application.usecase.AddBikeService;
@@ -23,6 +27,7 @@ import hu.kerekpar.application.usecase.ListBikesService;
 import hu.kerekpar.application.usecase.ListRentalsService;
 import hu.kerekpar.application.usecase.ListTariffsService;
 import hu.kerekpar.application.usecase.ListUsersService;
+import hu.kerekpar.application.usecase.LoginService;
 import hu.kerekpar.application.usecase.RentBikeService;
 import hu.kerekpar.application.usecase.ReturnBikeService;
 import org.springframework.boot.ApplicationRunner;
@@ -42,6 +47,11 @@ public class BeanConfig {
     @Bean
     ListUsersUseCase listUsersUseCase(UserRepository users) {
         return new ListUsersService(users);
+    }
+
+    @Bean
+    LoginUseCase loginUseCase(CredentialsRepository credentials, PasswordHasher hasher, TokenIssuer tokens) {
+        return new LoginService(credentials, hasher, tokens);
     }
 
     @Bean

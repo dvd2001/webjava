@@ -24,6 +24,12 @@ class UserJpaEntity {
     @Column(name = "role", nullable = false)
     private UserRole role;
 
+    @Column(name = "username", nullable = false)
+    private String username;
+
+    @Column(name = "password_hash")
+    private String passwordHash;
+
     protected UserJpaEntity() {
     }
 
@@ -37,5 +43,13 @@ class UserJpaEntity {
 
     UserRole getRole() {
         return role;
+    }
+
+    String getUsername() {
+        return username;
+    }
+
+    String getPasswordHash() {
+        return passwordHash;
     }
 }

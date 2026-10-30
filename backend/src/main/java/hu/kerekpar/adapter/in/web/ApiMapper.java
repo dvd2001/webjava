@@ -3,10 +3,12 @@ package hu.kerekpar.adapter.in.web;
 import hu.kerekpar.adapter.in.web.api.model.BikeDto;
 import hu.kerekpar.adapter.in.web.api.model.BikeStatusDto;
 import hu.kerekpar.adapter.in.web.api.model.BikeTypeDto;
+import hu.kerekpar.adapter.in.web.api.model.LoginResponseDto;
 import hu.kerekpar.adapter.in.web.api.model.RentalDto;
 import hu.kerekpar.adapter.in.web.api.model.TariffDto;
 import hu.kerekpar.adapter.in.web.api.model.UserDto;
 import hu.kerekpar.adapter.in.web.api.model.UserRoleDto;
+import hu.kerekpar.application.port.in.LoginUseCase;
 import hu.kerekpar.application.port.in.RentalView;
 import hu.kerekpar.domain.model.Bike;
 import hu.kerekpar.domain.model.BikeStatus;
@@ -26,6 +28,11 @@ final class ApiMapper {
 
     static UserDto toDto(User user) {
         return new UserDto(user.id(), user.name(), toDto(user.role()));
+    }
+
+    static LoginResponseDto toDto(LoginUseCase.LoginResult result) {
+        return new LoginResponseDto(result.accessToken(), LoginResponseDto.TokenTypeEnum.BEARER,
+                result.expiresAt().toEpochMilli(), toDto(result.user()));
     }
 
     static BikeDto toDto(Bike bike) {

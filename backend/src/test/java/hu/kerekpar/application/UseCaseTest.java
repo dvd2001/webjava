@@ -23,7 +23,9 @@ import hu.kerekpar.application.usecase.RentBikeService;
 import hu.kerekpar.application.usecase.ReturnBikeService;
 import hu.kerekpar.domain.exception.ConflictException;
 import hu.kerekpar.domain.exception.ForbiddenException;
+import hu.kerekpar.domain.exception.InvalidInputException;
 import hu.kerekpar.domain.exception.NotFoundException;
+import hu.kerekpar.domain.exception.UnauthenticatedException;
 import hu.kerekpar.domain.model.Bike;
 import hu.kerekpar.domain.model.BikeStatus;
 import hu.kerekpar.domain.model.BikeType;
@@ -152,8 +154,70 @@ class UseCaseTest {
     }
 
     @Test
-    void unknownActorIsRejected() {
+    void unknownActorIsRejectedAsUnauthenticated() {
         assertThatThrownBy(() -> listRentals.execute(new ListRentalsUseCase.Query("x", null)))
+                .isInstanceOfSatisfying(UnauthenticatedException.class,
+                        e -> assertThat(e.code()).isEqualTo("UNKNOWN_ACTOR"));
+        assertThatThrownBy(() -> rentBike.execute(new RentBikeUseCase.Command("x", "b3")))
+                .isInstanceOf(UnauthenticatedException.class);
+        assertThatThrownBy(() -> addBike.execute(new AddBikeUseCase.Command(null, "City-03", BikeType.CITY)))
+                .isInstanceOf(UnauthenticatedException.class);
+    }
+
+    @Test
+    void finishedAndAllFiltersAreScopedAndOrdered() {
+        List<RentalView> finished = listRentals.execute(
+                new ListRentalsUseCase.Query(MANAGER, ListRentalsUseCase.Filter.FINISHED));
+        List<RentalView> all = listRentals.execute(new ListRentalsUseCase.Query(MANAGER, ListRentalsUseCase.Filter.ALL));
+        List<RentalView> renterFinished = listRentals.execute(
+                new ListRentalsUseCase.Query(RENTER, ListRentalsUseCase.Filter.FINISHED));
+
+        assertThat(finished).extracting(v -> v.rental().id()).containsExactly("r0");
+        assertThat(finished.get(0).currentFee()).isEqualTo(finished.get(0).rental().fee());
+        assertThat(finished.get(0).elapsedSeconds()).isEqualTo(40 * 60);
+        assertThat(all).extracting(v -> v.rental().id()).containsExactly("r0", "r2", "r1");
+        assertThat(renterFinished).isEmpty();
+    }
+
+    @Test
+    void activeFeeGrowsWithTheClock() {
+        long before = listRentals.execute(new ListRentalsUseCase.Query(RENTER, ListRentalsUseCase.Filter.ACTIVE))
+                .get(0).currentFee();
+
+        now = now.plusSeconds(30 * 60);
+        RentalView later = listRentals.execute(new ListRentalsUseCase.Query(RENTER, ListRentalsUseCase.Filter.ACTIVE))
+                .get(0);
+
+        assertThat(later.currentFee()).isEqualTo(before + 30 * 15);
+        assertThat(later.elapsedSeconds()).isEqualTo(55 * 60);
+    }
+
+    @Test
+    void invalidBikeDataIsRejectedByTheUseCase() {
+        assertThatThrownBy(() -> addBike.execute(new AddBikeUseCase.Command(MANAGER, " ", BikeType.CITY)))
+                .isInstanceOf(InvalidInputException.class);
+        assertThatThrownBy(() -> addBike.execute(new AddBikeUseCase.Command(MANAGER, "City-03", null)))
+                .isInstanceOf(InvalidInputException.class);
+        assertThatThrownBy(() -> changeStatus.execute(new ChangeBikeStatusUseCase.Command(MANAGER, "b1", null)))
+                .isInstanceOf(InvalidInputException.class);
+        assertThatThrownBy(() -> changeStatus.execute(new ChangeBikeStatusUseCase.Command(MANAGER, "b999", BikeStatus.AVAILABLE)))
                 .isInstanceOf(NotFoundException.class);
+        assertThat(bikes.findAll()).hasSize(6);
+    }
+
+    @Test
+    void returningAnUnknownRentalIsNotFound() {
+        assertThatThrownBy(() -> returnBike.execute(new ReturnBikeUseCase.Command(MANAGER, "r999")))
+                .isInstanceOfSatisfying(NotFoundException.class,
+                        e -> assertThat(e.code()).isEqualTo("RENTAL_NOT_FOUND"));
+    }
+
+    @Test
+    void managerCannotRentAndRenterCannotChangeStatus() {
+        assertThatThrownBy(() -> rentBike.execute(new RentBikeUseCase.Command(MANAGER, "b3")))
+                .isInstanceOfSatisfying(ForbiddenException.class, e -> assertThat(e.code()).isEqualTo("RENTER_ONLY"));
+        assertThatThrownBy(() -> changeStatus.execute(
+                new ChangeBikeStatusUseCase.Command(OTHER_RENTER, "b1", BikeStatus.MAINTENANCE)))
+                .isInstanceOf(ForbiddenException.class);
     }
 }

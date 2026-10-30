@@ -7,12 +7,16 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Minden API kérés naplózása: metódus, útvonal, felhasználó, státusz, időtartam. */
+/**
+ * Minden API kérés naplózása: metódus, útvonal, hitelesített felhasználó, státusz, időtartam.
+ * A biztonsági szűrők mögött fut, ezért a hitelesítést elutasító kéréseket a hibakezelők naplózzák.
+ */
 public class RequestLoggingFilter extends OncePerRequestFilter {
-
-    public static final String USER_HEADER = "X-User-Id";
 
     private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
 
@@ -30,7 +34,14 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         } finally {
             long millis = (System.nanoTime() - start) / 1_000_000;
             log.info("{} {} user={} -> {} ({} ms)", request.getMethod(), request.getRequestURI(),
-                    request.getHeader(USER_HEADER), response.getStatus(), millis);
+                    currentUser(), response.getStatus(), millis);
         }
+    }
+
+    private static String currentUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        boolean authenticated = authentication != null && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken);
+        return authenticated ? authentication.getName() : "-";
     }
 }

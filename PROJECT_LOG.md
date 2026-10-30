@@ -89,3 +89,24 @@ A beszélgetések összefoglalóját időrendben ide naplózzuk.
   alapértelmezetten (profil nélkül) in-memory; frontend `cd frontend; npm run dev`.
 - Nyitott (a review-ból): a `nextId()` ütközhet kézzel beszúrt azonosítóval (a `save()` ilyenkor felülír), N+1 a bérléslistában,
   a domain UTF-16 hossza vs DB kódpont-hossz (emoji név 500), a névegyediség a DB lokalizációjától függ.
+
+### Hitelesítés és jogosultság (Spring Security, JWT)
+
+- Szerződés: `POST /api/auth/login` (felhasználónév + jelszó → Bearer JWT, HS256, 30 perc); minden más végpont `Authorization: Bearer` fejlécet kér.
+  Az `X-User-Id` fejléc megszűnt, az actor kizárólag a token `sub` claimjéből jön (`CurrentActor`).
+- Útvonal egy kérésnél: `SecurityFilterChain` (`config/SecurityConfig`: állapotmentes, CSRF off, CORS, kérés-matcherek, `anyRequest().denyAll()`)
+  → `BearerTokenAuthenticationFilter` + `JwtDecoder` (aláírás, lejárat, kiállító) → `JwtAuthenticationConverter` (`role` claim → `ROLE_MANAGER|ROLE_RENTER`)
+  → `AuthenticationEntryPoint` 401 / `AccessDeniedHandler` 403 (`ApiSecurityErrorHandlers`, szerződés szerinti JSON) → controller (`BikeController`, `RentalController`, `ReferenceDataController`)
+  → használati eset (`CurrentActor.id()` mint `actorId` a Command/Query-ben) → `ActorGuard` (a felhasználó és a szerepkör betöltése a tárolóból) → repository.
+- Szerepkör-ellenőrzés két helyen: (1) URL-szinten a `SecurityFilterChain` (GET /api/users: manager; POST /api/bikes, PATCH /api/bikes/*/status: manager; POST /api/rentals: renter),
+  (2) használati eset szinten az `ActorGuard` a tárolt szerepkör alapján (a token `role` claimje önmagában nem döntő).
+- Tulajdonjog: `memberId` az URL-ben nincs; a megfelelője a `rentalId`: `ReturnBikeService` csak a bérlő saját bérlését engedi (vagy managert), különben 403 `NOT_RENTAL_OWNER`.
+  A `GET /api/rentals` találatait a `ListRentalsService` szűri a hívóra.
+- Bejelentkezés: `LoginService` (egységes hibaüzenet, mindig fut hash-ellenőrzés, hossz-korlát), `BcryptPasswordHasher`, `JwtTokenIssuer`, `LoginAttemptLimiter` (5 sikertelen kísérlet → 15 perc zárolás, 429).
+- Jelszavak: V4 migráció (username + bcrypt hash oszlop, hash alapból NULL). A fejlesztői demo jelszavak (anna/peter/eszter/gabor, jelszó a `kerekpar.demo-users.password`) csak
+  az ismételhető `db/dev/R__dev_demo_credentials.sql`-ben vannak, amit az `application-postgres.properties` tölt be; élesben a `spring.flyway.locations`-ből el kell hagyni a `classpath:db/dev` részt.
+- JWT kulcs: `KEREKPAR_JWT_SECRET` (min. 32 bájt); ha hiányzik, indításkor véletlen kulcs készül (figyelmeztetéssel), nincs commitolt kulcs.
+- Frontend (demó): nincs bejelentkező űrlap, az eredeti felhasználóváltó maradt. A váltó a demo felhasználóval (`src/demoUsers.ts`: anna/peter/eszter/gabor, jelszó: `VITE_DEMO_PASSWORD`,
+  alapértelmezetten a backend fejlesztői demo jelszava) csendben bejelentkezik, így a backend minden kérést valódi tokennel hitelesít. A token csak memóriában él,
+  lejárat előtt 60 mp-cel és 401 esetén csendben megújul. Valódi alkalmazásban bejelentkező űrlap kellene, és a jelszó nem kerülhetne a kliensbe.
+- Tesztek: 209 backend teszt (domain, application, in-memory és biztonsági adapterek, web, ArchUnit, PostgreSQL integráció); a szerepkör-mátrix, tokenhamisítás és actor-hamisítás tesztek a `SecurityTest`-ben.
